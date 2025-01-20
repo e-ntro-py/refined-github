@@ -1,24 +1,26 @@
 {
 	"extends": "@sindresorhus/tsconfig",
 	"compilerOptions": {
-		"target": "es2022",
-		"module": "es2022",
-		"moduleResolution": "Node",
-		"moduleDetection": "legacy", // TODO: Drop After dropping Webpack
+		"outDir": "./distribution/assets",
+		"rootDir": "./",
+		"module": "preserve",
+		"moduleResolution": "bundler",
 		"declaration": false,
-		"esModuleInterop": true,
 		"noUncheckedIndexedAccess": false,
 		"noPropertyAccessFromIndexSignature": false,
+		"resolveJsonModule": true,
+		"verbatimModuleSyntax": true,
 		"lib": [
 			"DOM",
 			"DOM.Iterable",
-			"ES2022"
-		],
+			"ESNext.Collection",
+			"ESNext.Object",
+			"ES2023"
+		]
 	},
 	"include": [
 		"source",
 		"test",
-		"build",
-		"webpack.config.ts"
+		"build"
 	]
 }

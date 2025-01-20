@@ -1,18 +1,18 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import onetime from 'onetime';
+import {$, $optional} from 'select-dom/strict.js';
 import delegate from 'delegate-it';
 import domLoaded from 'dom-loaded';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import selectHas from '../helpers/select-has';
-import attachElement from '../helpers/attach-element';
+import onetime from '../helpers/onetime.js';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import observe from '../helpers/selector-observer.js';
+import {expectToken} from '../github-helpers/github-token.js';
 
 const documentation = 'https://github.com/refined-github/refined-github/wiki/Extended-feature-descriptions#new-repo-disable-projects-and-wikis';
 
-async function disableWikiAndProjects(): Promise<void> {
+async function disableWikiAndProjectsOnce(): Promise<void> {
 	delete sessionStorage.rghNewRepo;
 
 	await api.v3('', {
@@ -23,45 +23,41 @@ async function disableWikiAndProjects(): Promise<void> {
 		},
 	});
 	await domLoaded;
-	select('[data-menu-item$="wiki-tab"]')?.remove();
-	select('[data-menu-item$="projects-tab"]')?.remove();
-	selectHas('li:has([data-content="Wiki"]')?.remove();
-	selectHas('li:has([data-content="Projects"])')?.remove();
+	$optional('[data-menu-item$="wiki-tab"]')?.remove();
+	$optional('[data-menu-item$="projects-tab"]')?.remove();
+	$optional('li:has([data-content="Wiki"]')?.remove();
+	$optional('li:has([data-content="Projects"])')?.remove();
 }
 
 function setStorage(): void {
-	if (select('input#rgh-disable-project')!.checked) {
+	if ($('input#rgh-disable-project').checked) {
 		sessionStorage.rghNewRepo = true;
 	}
 }
 
-async function init(signal: AbortSignal): Promise<void> {
-	await api.expectToken();
-
-	const anchor = select.last([
-		'.js-repo-init-setting-container', // IsNewRepo
-		'.form-checkbox', // IsNewRepoTemplate
-	]);
-	attachElement(anchor, {
-		after: () => (
-			<div className="flash flash-warn py-0">
-				<div className="form-checkbox checked">
-					<label>
-						<input
-							checked
-							type="checkbox"
-							id="rgh-disable-project"
-						/> Disable Projects and Wikis
-					</label>
-					<span className="note mb-2">
-						After creating the repository disable the projects and wiki. <a href={documentation} target="_blank" rel="noreferrer">Suggestion by Refined GitHub.</a>
-					</span>
-				</div>
+function add(submitButtonLine: HTMLElement): void {
+	submitButtonLine.before(
+		<div className="flash flash-warn py-0 ml-n3">
+			<div className="form-checkbox checked">
+				<label>
+					<input
+						checked
+						type="checkbox"
+						id="rgh-disable-project"
+					/> Disable Projects and Wikis
+				</label>
+				<span className="note mb-2">
+					After creating the repository disable the projects and wiki. <a href={documentation} target="_blank" rel="noreferrer">Suggestion by Refined GitHub.</a>
+				</span>
 			</div>
-		),
-	});
+		</div>,
+	);
+}
 
-	delegate(document, '#new_repository, #new_new_repository', 'submit', setStorage, {signal});
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+	observe('form :has(> [type=submit])', add, {signal});
+	delegate(['#new_repository', '#new_new_repository'], 'submit', setStorage, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -69,11 +65,19 @@ void features.add(import.meta.url, {
 		pageDetect.isNewRepo,
 		pageDetect.isNewRepoTemplate,
 	],
-	awaitDomReady: true,
 	init,
 }, {
 	include: [
 		() => Boolean(sessionStorage.rghNewRepo),
 	],
-	init: onetime(disableWikiAndProjects),
+	init: onetime(disableWikiAndProjectsOnce),
 });
+
+/*
+
+Test URLs:
+
+https://github.com/new
+https://github.com/new?template_name=browser-extension-template&template_owner=fregante
+
+*/

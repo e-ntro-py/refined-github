@@ -1,15 +1,15 @@
 import React from 'dom-chef';
-import select from 'select-dom';
+import {$} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
 
-import {wrap} from '../helpers/dom-utils';
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
+import {wrap} from '../helpers/dom-utils.js';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
 
 function linkify(textLine: HTMLElement): void {
-	const url = select('a.dropdown-item[href^="#pullrequestreview-"]', textLine.parentElement!);
+	const url = $('a.dropdown-item[href^="#pullrequestreview-"]', textLine.parentElement!);
 	// `lastChild` is a textNode
-	wrap(textLine.lastChild!, <a href={url!.hash}/>);
+	wrap(textLine.lastChild!, <a href={url.hash} />);
 }
 
 function init(signal: AbortSignal): void {

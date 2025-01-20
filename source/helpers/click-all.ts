@@ -1,8 +1,8 @@
-import mem from 'mem';
-import select from 'select-dom';
-import {DelegateEvent} from 'delegate-it';
+import mem from 'memoize';
+import {$$} from 'select-dom';
+import type {DelegateEvent} from 'delegate-it';
 
-import preserveScroll from './preserve-scroll';
+import preserveScroll from './preserve-scroll.js';
 
 type EventHandler = (event: DelegateEvent<MouseEvent, HTMLElement>) => void;
 export default mem((selector: string | ((clickedItem: HTMLElement) => string)): EventHandler => event => {
@@ -17,7 +17,7 @@ export default mem((selector: string | ((clickedItem: HTMLElement) => string)): 
 });
 
 function clickAllExcept(elementsToClick: string, except: HTMLElement): void {
-	for (const item of select.all(elementsToClick)) {
+	for (const item of $$(elementsToClick)) {
 		if (item !== except) {
 			item.click();
 		}

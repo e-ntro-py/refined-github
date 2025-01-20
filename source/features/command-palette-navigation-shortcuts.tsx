@@ -1,8 +1,8 @@
-import onetime from 'onetime';
-import delegate, {DelegateEvent} from 'delegate-it';
+import delegate, {type DelegateEvent} from 'delegate-it';
 
-import {isMac} from '../github-helpers';
-import features from '../feature-manager';
+import {isMac} from '../github-helpers/index.js';
+import features from '../feature-manager.js';
+import onetime from '../helpers/onetime.js';
 
 function commandPaletteKeydown(event: DelegateEvent<KeyboardEvent>): void {
 	const {key, ctrlKey, delegateTarget} = event;
@@ -17,8 +17,8 @@ function commandPaletteKeydown(event: DelegateEvent<KeyboardEvent>): void {
 	delegateTarget.dispatchEvent(new KeyboardEvent('keydown', {bubbles: true, key: targetKey, code: targetKey}));
 }
 
-function init(): void {
-	delegate(document, 'command-palette', 'keydown', commandPaletteKeydown);
+function initOnce(): void {
+	delegate('command-palette', 'keydown', commandPaletteKeydown);
 }
 
 void features.add(import.meta.url, {
@@ -29,5 +29,13 @@ void features.add(import.meta.url, {
 		'ctrl n': 'Select next item in command palette',
 		'ctrl p': 'Select previous item in command palette',
 	},
-	init: onetime(init),
+	init: onetime(initOnce),
 });
+
+/*
+
+Test URLs:
+
+Mac only, any page, like https://github.com/refined-github/refined-github/pull/5432
+
+*/

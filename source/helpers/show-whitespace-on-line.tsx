@@ -1,13 +1,13 @@
 import React from 'dom-chef';
 
-import getTextNodes from './get-text-nodes';
+import getTextNodes from './get-text-nodes.js';
 
 // `splitText` is used before and after each whitespace group so a new whitespace-only text node is created. This new node is then wrapped in a <span>
 export default function showWhiteSpacesOnLine(line: Element, shouldAvoidSurroundingSpaces = false): Element {
 	const textNodesOnThisLine = getTextNodes(line);
 	for (const [nodeIndex, textNode] of textNodesOnThisLine.entries()) {
 		// `textContent` reads must be cached #2737
-		let text = textNode.textContent!;
+		let text = textNode.textContent;
 		if (text.length > 1000) { // #5092
 			continue;
 		}
@@ -21,9 +21,9 @@ export default function showWhiteSpacesOnLine(line: Element, shouldAvoidSurround
 		const endingCharacterIndex = text.length - 1 - Number(skipLastCharacter);
 
 		// Loop goes in reverse otherwise `splitText`'s `index` parameter needs to keep track of the previous split
-		for (let i = endingCharacterIndex; i >= startingCharacterIndex; i--) {
-			const thisCharacter = text[i];
-			const endingIndex = i;
+		for (let index = endingCharacterIndex; index >= startingCharacterIndex; index--) {
+			const thisCharacter = text[index];
+			const endingIndex = index;
 
 			// Exclude irrelevant characters
 			if (thisCharacter !== ' ' && thisCharacter !== '\t') {
@@ -31,12 +31,12 @@ export default function showWhiteSpacesOnLine(line: Element, shouldAvoidSurround
 			}
 
 			// Find the same character so they can be wrapped together, but stop at `startingCharacterIndex`
-			while (text[i - 1] === thisCharacter && !(i === startingCharacterIndex)) {
-				i--;
+			while (text[index - 1] === thisCharacter && !(index === startingCharacterIndex)) {
+				index--;
 			}
 
 			// Skip non-boundary single spaces
-			if (!isLeading && !isTrailing && i === endingIndex && thisCharacter === ' ') {
+			if (!isLeading && !isTrailing && index === endingIndex && thisCharacter === ' ') {
 				continue;
 			}
 
@@ -44,10 +44,10 @@ export default function showWhiteSpacesOnLine(line: Element, shouldAvoidSurround
 				textNode.splitText(endingIndex + 1);
 			}
 
-			textNode.splitText(i);
+			textNode.splitText(index);
 
 			// Update cached variable here because it just changed
-			text = textNode.textContent!;
+			text = textNode.textContent;
 
 			textNode.after(
 				<span data-rgh-whitespace={thisCharacter === '\t' ? 'tab' : 'space'}>

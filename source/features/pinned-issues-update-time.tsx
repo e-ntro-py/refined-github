@@ -1,19 +1,23 @@
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
+import {CachedFunction} from 'webext-storage-cache';
+import {$} from 'select-dom/strict.js';
+import batchedFunction from 'batched-function';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {getRepo} from '../github-helpers';
-import looseParseInt from '../helpers/loose-parse-int';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {getRepo} from '../github-helpers/index.js';
+import looseParseInt from '../helpers/loose-parse-int.js';
+import observe from '../helpers/selector-observer.js';
+import {expectToken} from '../github-helpers/github-token.js';
 
 type IssueInfo = {
 	updatedAt: string;
 };
 
-const getLastUpdated = cache.function('last-updated', async (issueNumbers: number[]): Promise<Record<string, IssueInfo>> => {
-	const {repository} = await api.v4(`
+const getLastUpdated = new CachedFunction('last-updated', {
+	async updater(issueNumbers: number[]): Promise<Record<string, IssueInfo>> {
+		const {repository} = await api.v4(`
 		repository() {
 			${issueNumbers.map(number => `
 				${api.escapeKey(number)}: issue(number: ${number}) {
@@ -23,40 +27,49 @@ const getLastUpdated = cache.function('last-updated', async (issueNumbers: numbe
 		}
 	`);
 
-	return repository;
-}, {
+		return repository;
+	},
 	maxAge: {minutes: 30},
 	cacheKey: ([issues]) => `${getRepo()!.nameWithOwner}:${String(issues)}`,
 });
 
 function getPinnedIssueNumber(pinnedIssue: HTMLElement): number {
-	return looseParseInt(select('.opened-by', pinnedIssue)!.firstChild!);
+	return looseParseInt($('.opened-by', pinnedIssue).firstChild!);
 }
 
-async function init(): Promise<void | false> {
-	const pinnedIssues = select.all('.pinned-issue-item');
-	if (pinnedIssues.length === 0) {
-		return false;
-	}
-
-	const lastUpdated: Record<string, IssueInfo> = await getLastUpdated(pinnedIssues.map(issue => getPinnedIssueNumber(issue)));
+async function update(pinnedIssues: HTMLElement[]): Promise<void> {
+	const lastUpdated: Record<string, IssueInfo> = await getLastUpdated.get(pinnedIssues.map(issue => getPinnedIssueNumber(issue)));
 	for (const pinnedIssue of pinnedIssues) {
 		const issueNumber = getPinnedIssueNumber(pinnedIssue);
 		const {updatedAt} = lastUpdated[api.escapeKey(issueNumber)];
-		select('.pinned-item-desc', pinnedIssue)!.append(
-			' • ',
-			<span className="color-fg-muted d-inline-block">
-				updated <relative-time datetime={updatedAt}/>
+		const originalLine = $('.opened-by', pinnedIssue);
+		originalLine.after(
+			// .rgh class enables tweakers to hide the number
+			<span className="text-small color-fg-muted">
+				<span className="rgh-pinned-issue-number">#{issueNumber}</span> updated <relative-time datetime={updatedAt} />
 			</span>,
 		);
+
+		originalLine.hidden = true;
 	}
+}
+
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+	observe('.pinned-issue-item', batchedFunction(update, {delay: 100}), {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isRepoIssueList,
 	],
-	deduplicate: 'has-rgh-inner',
-	awaitDomReady: true, // TODO: Use `observe` + `batched-function`
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/issues
+
+*/

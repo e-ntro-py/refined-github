@@ -1,44 +1,55 @@
 import './mark-private-orgs.css';
+
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
-import {EyeClosedIcon} from '@primer/octicons-react';
+import {CachedFunction} from 'webext-storage-cache';
+import EyeClosedIcon from 'octicons-plain-react/EyeClosed';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {getUsername} from '../github-helpers';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {getUsername} from '../github-helpers/index.js';
+import observe from '../helpers/selector-observer.js';
 
-const getPublicOrganizationsNames = cache.function('public-organizations', async (username: string): Promise<string[]> => {
+const publicOrganizationsNames = new CachedFunction('public-organizations', {
+	async updater(username: string): Promise<string[]> {
 	// API v4 seems to *require* `org:read` permission AND it includes private organizations as well, which defeats the purpose. There's no way to filter them.
 	// GitHub's API explorer inexplicably only includes public organizations.
-	const response = await api.v3(`/users/${username}/orgs`);
-	return response.map((organization: AnyObject) => organization.login);
-}, {
+		const response = await api.v3(`/users/${username}/orgs`);
+		return response.map((organization: AnyObject) => organization.login);
+	},
 	maxAge: {hours: 6},
 	staleWhileRevalidate: {days: 10},
 });
 
-async function init(): Promise<false | void> {
-	const orgs = select.all('a.avatar-group-item[data-hovercard-type="organization"][itemprop="follows"]'); // `itemprop` excludes sponsorships #3770
-	if (orgs.length === 0) {
-		return false;
+function markPrivate(org: HTMLAnchorElement, organizations: string[]): void {
+	if (!organizations.includes(org.pathname.replace(/^\/(organizations\/)?/, ''))) {
+		org.classList.add('rgh-private-org');
+		org.append(<EyeClosedIcon />);
 	}
+}
 
-	const publicOrganizationsNames = await getPublicOrganizationsNames(getUsername()!);
-	for (const org of orgs) {
-		if (!publicOrganizationsNames.includes(org.pathname.replace(/^\/(organizations\/)?/, ''))) {
-			org.classList.add('rgh-private-org');
-			org.append(<EyeClosedIcon/>);
-		}
-	}
+async function init(signal: AbortSignal): Promise<void> {
+	const organizations = await publicOrganizationsNames.get(getUsername()!);
+	observe(
+		'a.avatar-group-item[data-hovercard-type="organization"][itemprop="follows"]',
+		org => {
+			markPrivate(org, organizations);
+		},
+		{signal, stopOnDomReady: true},
+	);
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isOwnUserProfile,
 	],
-	deduplicate: 'has-rgh',
-	awaitDomReady: true, // TODO: Use the observer
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/YOUR_USERNAME
+
+*/

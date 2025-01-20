@@ -1,47 +1,42 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import {getRepo} from '../github-helpers';
-import getUserAvatar from '../github-helpers/get-user-avatar';
+import features from '../feature-manager.js';
+import {getRepo} from '../github-helpers/index.js';
+import getUserAvatar from '../github-helpers/get-user-avatar.js';
+import observe from '../helpers/selector-observer.js';
 
-async function init(): Promise<void> {
-	// Icon for public but not template/fork/etc. repos
-	const icon = await elementReady('#repository-container-header .octicon-repo');
-	if (!icon) {
-		return;
-	}
-
-	const link = select('#repository-container-header a[rel="author"]')!.cloneNode();
+async function add(ownerLabel: HTMLElement): Promise<void> {
 	const username = getRepo()!.owner;
-	const size = 24;
-	const src = getUserAvatar(username, size)!;
+	const size = 16;
+	const source = getUserAvatar(username, size)!;
 
 	const avatar = (
 		<img
-			className="avatar mr-2 d-block"
-			src={src}
+			className="avatar ml-1 mr-2"
+			src={source}
 			width={size}
 			height={size}
 			alt={`@${username}`}
 		/>
 	);
 
-	link.append(avatar);
-	icon.replaceWith(link);
+	ownerLabel.classList.add('d-flex', 'flex-items-center');
+	ownerLabel.prepend(avatar);
 
-	if (link.dataset.hovercardType !== 'organization') {
+	if (!ownerLabel.closest('[data-hovercard-type="organization"]')) {
 		avatar.classList.add('avatar-user');
 	}
+}
+
+function init(signal: AbortSignal): void {
+	observe('.AppHeader-context-full li:first-child .AppHeader-context-item-label', add, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasRepoHeader,
 	],
-	deduplicate: 'has-rgh',
 	init,
 });
 
@@ -49,7 +44,7 @@ void features.add(import.meta.url, {
 
 ## Test URLs
 
-- org repo: https://github.com/refined-github/refined-github
-- user repo: https://github.com/fregante/GhostText
+- org repo: https://github.com/refined-github/refined-github/issues
+- user repo: https://github.com/fregante/GhostText/issues
 
 */

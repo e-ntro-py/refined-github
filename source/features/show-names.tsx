@@ -1,82 +1,91 @@
-import './show-names.css';
 import React from 'dom-chef';
 import * as pageDetect from 'github-url-detection';
 import batchedFunction from 'batched-function';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {getUsername, compareNames} from '../github-helpers';
-import observe from '../helpers/selector-observer';
-import {removeTextNodeContaining} from '../helpers/dom-utils';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {getUsername, isUsernameAlreadyFullName} from '../github-helpers/index.js';
+import observe from '../helpers/selector-observer.js';
+import {removeTextNodeContaining} from '../helpers/dom-utils.js';
+import {usernameLinksSelector} from '../github-helpers/selectors.js';
+import {expectToken} from '../github-helpers/github-token.js';
 
-// The selector observer calls this function several times, but we want to batch them into a single GraphQL API call
-const batchUpdateLinks = batchedFunction(async (batchedUsernameElements: HTMLAnchorElement[]): Promise<void> => {
-	// TODO: Split up this function, it does too much
-	const usernames = new Set<string>();
-	const myUsername = getUsername();
-	for (const element of new Set(batchedUsernameElements)) {
-		const username = element.textContent;
-		if (username && username !== myUsername && username !== 'ghost') {
-			usernames.add(element.textContent!);
-		}
-
-		// Drop 'commented' label to shorten the copy
-		const commentedNode = element.parentNode!.nextSibling;
-		if (element.closest('.timeline-comment-header') && commentedNode) {
-			// "left a comment" appears in the main comment of reviews
-			removeTextNodeContaining(commentedNode, /commented|left a comment/);
-		}
+async function dropExtraCopy(link: HTMLAnchorElement): Promise<void> {
+	// Drop 'commented' label to shorten the copy
+	const commentedNode = link.parentNode!.nextSibling;
+	if (link.closest('.timeline-comment-header') && commentedNode) {
+		// "left a comment" appears in the main comment of reviews
+		removeTextNodeContaining(commentedNode, /commented|left a comment/);
 	}
+}
 
-	if (usernames.size === 0) {
+function appendName(element: HTMLAnchorElement, fullName: string): void {
+	// If it's a regular comment author, add it outside <strong> otherwise it's something like "User added some commits"
+	const {parentElement} = element;
+	const insertionPoint = parentElement!.tagName === 'STRONG' ? parentElement! : element;
+	const nameElement = (
+		<span className="color-fg-muted css-truncate d-inline-block ml-1">
+			{/* .css-truncate-target sets display: inline-block and confines bidi overrides #8191 */}
+			(<span className="css-truncate-target" style={{maxWidth: '200px'}}>{fullName}</span>)
+		</span>
+	);
+
+	if (insertionPoint.parentElement!.className.startsWith('Box-')) {
+		insertionPoint.after(nameElement, ' ');
+	} else {
+		// TODO: Drop condition in May 2025
+		nameElement.classList.remove('ml-1');
+		insertionPoint.after(' ', nameElement, ' ');
+	}
+}
+
+async function updateLinks(found: HTMLAnchorElement[]): Promise<void> {
+	const users = Map.groupBy(found, element => element.textContent.trim());
+	users.delete(getUsername()!);
+	users.delete('ghost'); // Consider using `github-reserved-names` if more exclusions are needed
+
+	if (users.size === 0) {
 		return;
 	}
 
 	const names = await api.v4(
-		[...usernames].map(user =>
-			api.escapeKey(user) + `: user(login: "${user}") {name}`,
+		[...users.keys()].map(username =>
+			api.escapeKey(username) + `: user(login: "${username}") {name}`,
 		).join(','),
 	);
 
-	for (const usernameElement of batchedUsernameElements) {
-		const username = usernameElement.textContent!;
+	for (const [username, elements] of users) {
 		const userKey = api.escapeKey(username);
+		const {name: fullName} = names[userKey];
 
-		// For the currently logged in user, `names[userKey]` would not be present
-		const {name} = names[userKey] ?? {};
-		if (!name) {
+		// Could be `null` if not set
+		if (!fullName) {
 			continue;
 		}
 
-		// If it's a regular comment author, add it outside <strong> otherwise it's something like "User added some commits"
-		if (compareNames(username, name)) {
-			usernameElement.textContent = name;
-			continue;
+		for (const element of elements) {
+			if (isUsernameAlreadyFullName(username, fullName)) {
+				element.textContent = fullName;
+			} else {
+				appendName(element, fullName);
+			}
 		}
-
-		const {parentElement} = usernameElement;
-		const insertionPoint = parentElement!.tagName === 'STRONG' ? parentElement! : usernameElement;
-		insertionPoint.after(
-			' ',
-			<span className="color-fg-muted css-truncate d-inline-block">
-				(<bdo className="css-truncate-target" style={{maxWidth: '200px'}}>{name}</bdo>)
-			</span>,
-			' ',
-		);
 	}
-});
+}
 
-const usernameLinksSelector = [
-	// `a` selector needed to skip commits by non-GitHub users
-	':is(.js-discussion, .inline-comments) a.author:not([href*="/apps/"], [href*="/marketplace/"], [data-hovercard-type="organization"])',
+const updateLink = batchedFunction(updateLinks, {delay: 200});
 
-	// On dashboard `.text-bold` is required to not fetch avatars
-	'#dashboard a.text-bold[data-hovercard-type="user"]',
-] as const;
+function updateDom(link: HTMLAnchorElement): void {
+	// `dropExtraCopy` is async so that errors in this part don't break the entire feature
+	void dropExtraCopy(link);
 
-function init(signal: AbortSignal): void {
+	updateLink(link);
+}
+
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
 	document.body.classList.add('rgh-show-names');
-	observe(usernameLinksSelector, batchUpdateLinks, {signal});
+	observe(usernameLinksSelector, updateDom, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -86,3 +95,20 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+- issue: https://github.com/isaacs/github/issues/297
+- PR with reviews: https://github.com/rust-lang/rfcs/pull/2544
+- mannequins: https://togithub.com/python/cpython/issues/67591
+- newsfeed: https://github.com
+
+Special cases:
+
+- RTL: https://github.com/refined-github/refined-github/issues/8191
+- Bidi override case 1: https://togithub.com/FortAwesome/Font-Awesome/issues/2465
+- Bidi override case 2: https://togithub.com/w3c/webdriver/issues/385#issuecomment-598407238
+
+*/

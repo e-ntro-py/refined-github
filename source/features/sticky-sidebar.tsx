@@ -1,16 +1,21 @@
 import './sticky-sidebar.css';
+
 import debounce from 'debounce-fn';
 import * as pageDetect from 'github-url-detection';
+import {onAbort} from 'abort-utils';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
-import onAbort from '../helpers/abort-controller';
-import calculateCssCalcString from '../helpers/calculate-css-calc-string';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
+import calculateCssCalcString from '../helpers/calculate-css-calc-string.js';
 
 const minimumViewportWidthForSidebar = 768; // Less than this, the layout is single-column
 
-// The first selector in the parentheses is for the repo root, the second one for conversation pages
-const sidebarSelector = '.Layout-sidebar :is(.BorderGrid, #partial-discussion-sidebar)';
+const sidebarSelector = [
+	'.Layout-sidebar .BorderGrid', // `isRepoRoot`
+	'.Layout-sidebar #partial-discussion-sidebar', // Old `isConversation`
+	'div[data-testid="issue-viewer-metadata-pane"]', // `isConversation`
+	'#discussion_bucket #partial-discussion-sidebar', // `isDiscussion`
+];
 
 let sidebar: HTMLElement | undefined;
 const onResize = debounce(updateStickiness, {wait: 100});
@@ -35,6 +40,9 @@ function trackSidebar(signal: AbortSignal, foundSidebar: HTMLElement): void {
 		sidebar = undefined;
 	});
 
+	const container = sidebar.parentElement!.id === 'discussion_bucket' ? sidebar : sidebar.parentElement!;
+	container.classList.add('rgh-sticky-sidebar-container');
+
 	sidebar.addEventListener('mouseenter', toggleHoverState, {signal});
 	sidebar.addEventListener('mouseleave', toggleHoverState, {signal});
 }
@@ -53,7 +61,7 @@ function updateStickiness(): void {
 }
 
 function init(signal: AbortSignal): void {
-	document.documentElement.classList.add('rgh-sticky-sidebar-enabled');
+	document.documentElement.setAttribute('rgh-sticky-sidebar-enabled', '');
 
 	// The element is recreated when the page is updated
 	// `trackSidebar` also triggers the first update via `sidebarObserver.observe()`
@@ -67,9 +75,19 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.isRepoRoot,
 		pageDetect.isConversation,
+		pageDetect.isDiscussion,
 	],
 	exclude: [
 		() => screen.availWidth < minimumViewportWidthForSidebar,
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+Repo: https://github.com/refined-github/refined-github
+Conversation: https://github.com/refined-github/refined-github/issues/6752
+
+*/

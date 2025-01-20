@@ -1,15 +1,15 @@
-import select from 'select-dom';
+import {$} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import {registerHotkey} from '../github-helpers/hotkey';
+import features from '../feature-manager.js';
+import {registerHotkey} from '../github-helpers/hotkey.js';
 
 function selectAllNotifications(): void {
-	select('.js-notifications-mark-all-prompt')!.click();
+	$('.js-notifications-mark-all-prompt').click();
 }
 
-function init(): Deinit {
-	return registerHotkey('a', selectAllNotifications);
+function init(signal: AbortSignal): void {
+	registerHotkey('a', selectAllNotifications, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -19,9 +19,14 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.isNotifications,
 	],
-	exclude: [
-		pageDetect.isBlank, // Empty notification list
-	],
-	deduplicate: 'has-rgh',
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/notifications (Grouped by date)
+https://github.com/notifications (Grouped by repo)
+
+*/

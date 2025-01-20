@@ -1,59 +1,84 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import {set} from 'text-field-edit';
+import {countElements} from 'select-dom';
 import * as pageDetect from 'github-url-detection';
+import delegate, {type DelegateEvent} from 'delegate-it';
+import {$} from 'select-dom/strict.js';
 
-import features from '../feature-manager';
-import {getBranches} from '../github-helpers/pr-branches';
-import getDefaultBranch from '../github-helpers/get-default-branch';
-import onPrMergePanelOpen from '../github-events/on-pr-merge-panel-open';
-import attachElement from '../helpers/attach-element';
-import cleanCommitMessage from '../helpers/clean-commit-message';
-import {userCanLikelyMergePR} from '../github-helpers';
+import features from '../feature-manager.js';
+import {getBranches} from '../github-helpers/pr-branches.js';
+import getDefaultBranch from '../github-helpers/get-default-branch.js';
+import cleanCommitMessage from '../helpers/clean-commit-message.js';
+import {userHasPushAccess} from '../github-helpers/get-user-permission.js';
+import {expectToken} from '../github-helpers/github-token.js';
+import attachElement from '../helpers/attach-element.js';
+import observe from '../helpers/selector-observer.js';
 
 const isPrAgainstDefaultBranch = async (): Promise<boolean> => getBranches().base.branch === await getDefaultBranch();
 
-async function init(): Promise<void | false> {
-	// Only run once so that it doesn't clear the field every time it's opened
-	features.unload(import.meta.url);
+// TODO: Drop in May 2025
+function handleLegacyToggle(event: DelegateEvent<CustomEvent, HTMLTextAreaElement>): void {
+	if (event.detail?.open !== true) {
+		return;
+	}
 
-	const messageField = select('textarea#merge_message_field')!;
+	const messageField = $('textarea#merge_message_field', event.delegateTarget);
+	if (messageField.value.trim()) {
+		clear(messageField);
+	}
+}
+
+function clearReactTextarea(textarea: HTMLTextAreaElement): void {
+	if (textarea.labels[0]?.textContent === 'Commit message') {
+		clear(textarea);
+	}
+}
+
+async function clear(messageField: HTMLTextAreaElement): Promise<void> {
 	const originalMessage = messageField.value;
 	const cleanedMessage = cleanCommitMessage(originalMessage, !await isPrAgainstDefaultBranch());
 
 	if (cleanedMessage === originalMessage.trim()) {
-		return false;
+		return;
 	}
 
-	set(messageField, cleanedMessage ? cleanedMessage + '\n' : '');
-	attachElement(messageField, {
+	// Do not use `text-field-edit` #6348
+	messageField.value = cleanedMessage ? cleanedMessage + '\n' : '';
+
+	// Trigger `fit-textareas` if enabled
+	messageField.dispatchEvent(new Event('input', {bubbles: true}));
+
+	// TODO: Drop `?? messageField` in May 2025
+	const anchor = messageField.closest('span[class^="TextInputWrapper"]') ?? messageField;
+
+	// TODO: Drop `<hr>` in May 2025
+	attachElement(anchor ?? messageField, {
 		after: () => (
-			<div>
+			<div className="flex-self-stretch">
 				<p className="note">
 					The description field was cleared by <a target="_blank" href="https://github.com/refined-github/refined-github/wiki/Extended-feature-descriptions#clear-pr-merge-commit-message" rel="noreferrer">Refined GitHub</a>.
 				</p>
-				<hr/>
+				{anchor.nodeName === 'TEXTAREA' && <hr />}
 			</div>
 		),
 	});
 }
 
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+	delegate('.js-merge-pr', 'details:toggled', handleLegacyToggle, {signal});
+	observe('[aria-label="Checks"] ~ div textarea[id]', clearReactTextarea, {signal});
+}
+
 void features.add(import.meta.url, {
-	include: [
+	asLongAs: [
 		pageDetect.isPRConversation,
+		userHasPushAccess,
 	],
 	exclude: [
 		// Don't clear 1-commit PRs #3140
-		() => select.all('.TimelineItem.js-commit').length === 1,
+		() => countElements('.TimelineItem.js-commit') === 1,
 	],
-	asLongAs: [
-		userCanLikelyMergePR,
-	],
-	additionalListeners: [
-		onPrMergePanelOpen,
-	],
-	onlyAdditionalListeners: true,
-	awaitDomReady: true, // Appears near the page anyway
+	awaitDomReady: true, // Appears near the end of the page anyway
 	init,
 });
 

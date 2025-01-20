@@ -1,40 +1,29 @@
 import React from 'dom-chef';
-import select from 'select-dom';
+import {$, $$optional} from 'select-dom/strict.js';
 import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import GitHubURL from '../github-helpers/github-url';
-import addNotice from '../github-widgets/notice-bar';
-import {linkifiedURLClass} from '../github-helpers/dom-formatters';
-import {buildRepoURL, isPermalink} from '../github-helpers';
-import {saveOriginalHref} from './sort-conversations-by-update-time';
-import observe from '../helpers/selector-observer';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import GitHubFileURL from '../github-helpers/github-file-url.js';
+import addNotice from '../github-widgets/notice-bar.js';
+import {linkifiedURLClass} from '../github-helpers/dom-formatters.js';
+import {buildRepoURL, isPermalink} from '../github-helpers/index.js';
+import {saveOriginalHref} from './sort-conversations-by-update-time.js';
+import observe from '../helpers/selector-observer.js';
+import GetCommitAtDate from './comments-time-machine-links.gql';
+import {expectToken} from '../github-helpers/github-token.js';
+import getDefaultBranch from '../github-helpers/get-default-branch.js';
 
-async function updateURLtoDatedSha(url: GitHubURL, date: string): Promise<void> {
-	const {repository} = await api.v4(`
-		repository() {
-			ref(qualifiedName: "${url.branch}") {
-				target {
-					... on Commit {
-						history(first: 1, until: "${date}") {
-							nodes {
-								oid
-							}
-						}
-					}
-				}
-			}
-		}
-	`);
+async function updateURLtoDatedSha(url: GitHubFileURL, date: string): Promise<void> {
+	const {repository} = await api.v4(GetCommitAtDate, {variables: {date, branch: url.branch}});
 
 	const [{oid}] = repository.ref.target.history.nodes;
-	select('a.rgh-link-date')!.pathname = url.assign({branch: oid}).pathname;
+	$('a.rgh-link-date').pathname = url.assign({branch: oid}).pathname;
 }
 
 async function showTimeMachineBar(): Promise<void | false> {
-	const url = new URL(location.href); // This can't be replaced with `GitHubURL` because `getCurrentCommittish` throws on 404s
+	const url = new URL(location.href); // This can't be replaced with `GitHubFileURL` because `getCurrentGitRef` throws on 404s
 	const date = url.searchParams.get('rgh-link-date')!;
 
 	// Drop parameter from current page after using it
@@ -57,34 +46,40 @@ async function showTimeMachineBar(): Promise<void | false> {
 			return false;
 		}
 
-		const parsedUrl = new GitHubURL(location.href);
+		const parsedUrl = new GitHubFileURL(location.href);
+
+		// Handle `isRepoHome` #4979
+		parsedUrl.branch ||= await getDefaultBranch();
+		parsedUrl.route ||= 'tree';
+
 		// Due to GitHub’s bug of supporting branches with slashes: #2901
 		void updateURLtoDatedSha(parsedUrl, date); // Don't await it, since the link will usually work without the update
 
+		// Set temporary URL AFTER calling `updateURLtoDatedSha`
 		parsedUrl.branch = `${parsedUrl.branch}@{${date}}`;
+
+		// Use new path in link
 		url.pathname = parsedUrl.pathname;
 	}
 
 	const link = (
-		<a className="rgh-link-date" href={url.href} data-turbo-frame="repo-content-turbo-frame">
+		<a className="rgh-link-date" href={url.href}>
 			view this object as it appeared at the time of the comment
 		</a>
 	);
 	await addNotice(
-		<>You can also {link} (<relative-time datetime={date}/>)</>,
+		<>You can also {link} (<relative-time datetime={date} />)</>,
 	);
 }
 
-function addInlineLinks(menu: HTMLElement, timestamp: string): void {
-	const comment = menu.closest('.js-comment')!;
-	// TODO: Move selector directly to observer
-	const links = select.all(`
-		a[href^="${location.origin}"][href*="/blob/"]:not(.${linkifiedURLClass}),
-		a[href^="${location.origin}"][href*="/tree/"]:not(.${linkifiedURLClass})
-	`, comment);
-
-	for (const link of links) {
+function addInlineLinks(comment: HTMLElement, timestamp: string): void {
+	for (const link of $$optional(`a[href^="${location.origin}"]:not(.${linkifiedURLClass})`, comment)) {
 		const linkParts = link.pathname.split('/');
+		// Skip non-git-object links. `undefined` covers links to the repo home #4979
+		if (![undefined, 'blob', 'tree', 'blame'].includes(linkParts[3])) {
+			continue;
+		}
+
 		// Skip permalinks
 		if (/^[\da-f]{40}$/.test(linkParts[4])) {
 			continue;
@@ -99,8 +94,8 @@ function addInlineLinks(menu: HTMLElement, timestamp: string): void {
 }
 
 function addDropdownLink(menu: HTMLElement, timestamp: string): void {
-	select('.show-more-popover', menu.parentElement!)!.append(
-		<div className="dropdown-divider"/>,
+	$('.show-more-popover', menu.parentElement!).append(
+		<div className="dropdown-divider" />,
 		<a
 			href={buildRepoURL(`tree/HEAD@{${timestamp}}`)}
 			className={'dropdown-item btn-link ' + linkifiedURLClass}
@@ -112,7 +107,9 @@ function addDropdownLink(menu: HTMLElement, timestamp: string): void {
 	);
 }
 
-function init(signal: AbortSignal): void {
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+
 	observe('.timeline-comment-actions > details:last-child', menu => {
 		if (menu.closest('.js-pending-review-comment')) {
 			return;
@@ -120,12 +117,22 @@ function init(signal: AbortSignal): void {
 
 		// The timestamp of main review comments isn't in their header but in the timeline event above #5423
 		const timestamp = menu
-			.closest('.js-comment:not([id^="pullrequestreview-"]), .js-timeline-item')!
+			.closest(['.js-comment:not([id^="pullrequestreview-"])', '.js-timeline-item'])!
 			.querySelector('relative-time')!
-			.attributes.datetime.value;
+			.attributes
+			.datetime
+			.value;
 
-		addInlineLinks(menu, timestamp);
+		addInlineLinks(menu.closest('.js-comment')!, timestamp);
 		addDropdownLink(menu, timestamp);
+	}, {signal});
+
+	observe([
+		'div.react-issue-comment',
+		'[data-testid="review-thread"] > div',
+	], comment => {
+		const timestamp = $('relative-time', comment).attributes.datetime.value;
+		addInlineLinks(comment, timestamp);
 	}, {signal});
 }
 
@@ -153,4 +160,8 @@ void features.add(import.meta.url, {
 Test URLs
 
 Find them in https://github.com/refined-github/refined-github/pull/1863
+
+See the bar on:
+
+- https://github.com/sindresorhus/refined-github/blob/main/source/features/mark-merge-commits-in-list.tsx?rgh-link-date=2019-03-04T13%3A04%3A18Z
 */

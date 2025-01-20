@@ -1,7 +1,4 @@
-/* eslint-disable @typescript-eslint/consistent-type-definitions -- Declaration merging necessary */
-/* eslint-disable unicorn/better-regex -- Go home you're drunk */
-
-import regexJoin from 'regex-join';
+import {regexJoinWithSeparator} from 'regex-join';
 import type CodeMirror from 'codemirror';
 
 declare module 'codemirror' {
@@ -29,7 +26,7 @@ editor.on('changes', (_, [firstChange]) => {
 function getLineNumber(lineChild: Element): number {
 	return Number(
 		lineChild
-			.closest('.CodeMirror-gutter-wrapper, .CodeMirror-linewidget')!
+			.closest(['.CodeMirror-gutter-wrapper', '.CodeMirror-linewidget'])!
 			.parentElement!
 			.querySelector('.CodeMirror-linenumber')!
 			.textContent,
@@ -93,7 +90,8 @@ function newWidget(): HTMLDivElement {
 
 const currentChange = /^>>>>>>> .+ -- Current Change$/;
 const incomingChange = /^<<<<<<< .+ -- Incoming Change$/;
-const anyMarker = regexJoin(currentChange, /|/, incomingChange, /|^=======$/);
+const middle = /^=======$/;
+const anyMarker = regexJoinWithSeparator('|', [currentChange, incomingChange, middle]);
 
 // Accept one or both of branches and remove unnecessary lines
 function acceptBranch(branch: string, line: number): void {
@@ -128,5 +126,3 @@ function acceptBranch(branch: string, line: number): void {
 	editor.execCommand('deleteLine');
 	editor.setCursor(linesToRemove[0]);
 }
-
-/* eslint-enable unicorn/better-regex */

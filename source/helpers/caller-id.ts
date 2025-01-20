@@ -1,4 +1,4 @@
-import hashString from './hash-string';
+import hashString from './hash-string.js';
 
 /**
 Get unique ID by using the line:column of the call (or its parents) as seed. Every call from the same place will return the same ID, as long as the index is set to the parents that matters to you.
@@ -13,7 +13,7 @@ export default function getCallerID(ancestor = 1): string {
 export function getStackLine(stack: string, line: number): string {
 	return stack
 		// Remove non-stacktrace line from array (missing in Firefox) #6032
-		.replace('Error: Get stack\n', '')!
+		.replace('Error: Get stack\n', '')
 		.split('\n')
 		.at(line) ?? warn(stack, line);
 }

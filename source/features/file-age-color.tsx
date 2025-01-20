@@ -1,8 +1,14 @@
+/*
+
+This feature is documented at https://github.com/refined-github/refined-github/wiki/Customization
+
+*/
+
 import * as pageDetect from 'github-url-detection';
 
-import observe from '../helpers/selector-observer';
-import features from '../feature-manager';
-import {createHeatIndexFunction} from '../helpers/math';
+import observe from '../helpers/selector-observer.js';
+import features from '../feature-manager.js';
+import {createHeatIndexFunction} from '../helpers/math.js';
 
 const calculateHeatIndex = createHeatIndexFunction([0, -2_000_000_000]);
 
@@ -15,15 +21,24 @@ function addHeatIndex(lastUpdateElement: HTMLElement): void {
 }
 
 function init(signal: AbortSignal): void {
-	observe([
-		'#files ~ div .js-navigation-item relative-time', // TODO: Drop old view in mid 2023
-		'.react-directory-commit-age > [title]',
-	], addHeatIndex, {signal});
+	observe('.react-directory-commit-age > [title]', addHeatIndex, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isRepoTree,
 	],
+	exclude: [
+		pageDetect.isRepoFile404,
+	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github
+https://github.com/refined-github/refined-github/tree/main/source
+
+*/

@@ -1,13 +1,15 @@
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
-import {CheckIcon} from '@primer/octicons-react';
+import {CachedFunction} from 'webext-storage-cache';
+import {$} from 'select-dom/strict.js';
+import CheckIcon from 'octicons-plain-react/Check';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import observe from '../helpers/selector-observer';
-import {cacheByRepo} from '../github-helpers';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import observe from '../helpers/selector-observer.js';
+import {cacheByRepo} from '../github-helpers/index.js';
+import HasChecks from './pr-filters.gql';
+import {expectToken} from '../github-helpers/github-token.js';
 
 const reviewsFilterSelector = '#reviews-select-menu';
 
@@ -35,7 +37,7 @@ function addDropdownItem(dropdown: HTMLElement, title: string, filterCategory: s
 			aria-checked={isSelected ? 'true' : 'false'}
 			role="menuitemradio"
 		>
-			<CheckIcon className="SelectMenu-icon SelectMenu-icon--check"/>
+			<CheckIcon className="SelectMenu-icon SelectMenu-icon--check" />
 			<span>{title}</span>
 		</a>,
 	);
@@ -52,31 +54,18 @@ function addDraftFilter(dropdown: HTMLElement): void {
 	addDropdownItem(dropdown, 'Not ready for review (Draft PR)', 'draft', 'true');
 }
 
-const hasChecks = cache.function('has-checks', async (): Promise<boolean> => {
-	const {repository} = await api.v4(`
-		repository() {
-			head: object(expression: "HEAD") {
-				... on Commit {
-					history(first: 10) {
-						nodes {
-							statusCheckRollup {
-								state
-							}
-						}
-					}
-				}
-			}
-		}
-	`);
+const hasChecks = new CachedFunction('has-checks', {
+	async updater(): Promise<boolean> {
+		const {repository} = await api.v4(HasChecks);
 
-	return repository.head.history.nodes.some((commit: AnyObject) => commit.statusCheckRollup);
-}, {
+		return repository.head.history.nodes.some((commit: AnyObject) => commit.statusCheckRollup);
+	},
 	maxAge: {days: 3},
 	cacheKey: cacheByRepo,
 });
 
 async function addChecksFilter(reviewsFilter: HTMLElement): Promise<void> {
-	if (!await hasChecks()) {
+	if (!await hasChecks.get()) {
 		return;
 	}
 
@@ -84,10 +73,10 @@ async function addChecksFilter(reviewsFilter: HTMLElement): Promise<void> {
 	const checksFilter = reviewsFilter.cloneNode(true);
 	checksFilter.id = '';
 
-	select('summary', checksFilter)!.firstChild!.textContent = 'Checks\u00A0'; // Only replace text node, keep caret
-	select('.SelectMenu-title', checksFilter)!.textContent = 'Filter by checks status';
+	$('summary', checksFilter).firstChild!.textContent = 'Checks\u00A0'; // Only replace text node, keep caret
+	$('.SelectMenu-title', checksFilter).textContent = 'Filter by checks status';
 
-	const dropdown = select('.SelectMenu-list', checksFilter)!;
+	const dropdown = $('.SelectMenu-list', checksFilter);
 	dropdown.textContent = ''; // Drop previous filters
 
 	for (const status of ['Success', 'Failure', 'Pending']) {
@@ -98,6 +87,7 @@ async function addChecksFilter(reviewsFilter: HTMLElement): Promise<void> {
 }
 
 async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
 	observe(reviewsFilterSelector, addChecksFilter, {signal});
 	observe(`${reviewsFilterSelector} .SelectMenu-list`, addDraftFilter, {signal});
 }
@@ -108,3 +98,12 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/pulls
+https://github.com/refined-github/refined-github/pulls
+
+*/

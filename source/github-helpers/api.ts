@@ -5,7 +5,7 @@ next to the name of the feature that caused them.
 
 Usage:
 
-import * as api from '../github-helpers/api';
+import api from '../github-helpers/api.js';
 const user = await api.v3(`/users/${username}`);
 const repositoryCommits = await api.v3('commits'); // Without a leading `/`, this is equivalent to `/repo/$current-repository/commits`
 const data = await api.v4('{user(login: "user") {name}}');
@@ -23,15 +23,15 @@ it lets you define accept error HTTP codes as a valid response, like:
 }
 
 so the call will not throw an error but it will return as usual.
- */
+*/
 
-import mem from 'mem';
+import mem from 'memoize';
 import * as pageDetect from 'github-url-detection';
-import {JsonObject, AsyncReturnType} from 'type-fest';
+import type {JsonObject, AsyncReturnType} from 'type-fest';
 
-import features from '../feature-manager';
-import {getRepo} from '.';
-import optionsStorage from '../options-storage';
+import {getRepo} from './index.js';
+import {getToken} from '../options-storage.js';
+import {log} from '../helpers/feature-helpers.js';
 
 type JsonError = {
 	message: string;
@@ -49,7 +49,7 @@ type RestResponse = {
 	ok: boolean;
 } & AnyObject;
 
-export const escapeKey = (...keys: Array<string | number>): string => '_' + String(keys).replace(/[^a-z\d]/gi, '_');
+const escapeKey = (...keys: Array<string | number>): string => '_' + String(keys).replaceAll(/[^a-z\d]/gi, '_');
 
 export class RefinedGitHubAPIError extends Error {
 	response: AnyObject = {};
@@ -58,25 +58,7 @@ export class RefinedGitHubAPIError extends Error {
 	}
 }
 
-const settings = optionsStorage.getAll();
-export async function expectToken(): Promise<string> {
-	const {personalToken} = await settings;
-	if (!personalToken) {
-		throw new Error('Personal token required for this feature');
-	}
-
-	return personalToken;
-}
-
-export async function expectTokenScope(scope: string): Promise<void> {
-	const {headers} = await v3('/');
-	const tokenScopes = headers.get('X-OAuth-Scopes')!;
-	if (!tokenScopes.split(', ').includes(scope)) {
-		throw new Error('The token you provided does not have ' + (tokenScopes ? `the \`${scope}\` scope. It only includes \`${tokenScopes}\`.` : 'any scope.'));
-	}
-}
-
-const api3 = pageDetect.isEnterprise()
+export const api3 = pageDetect.isEnterprise()
 	? `${location.origin}/api/v3/`
 	: 'https://api.github.com/';
 
@@ -94,6 +76,7 @@ type GHRestApiOptions = {
 
 type GHGraphQLApiOptions = {
 	allowErrors?: boolean;
+	variables?: JsonObject;
 };
 
 const v3defaults: GHRestApiOptions = {
@@ -107,25 +90,25 @@ const v4defaults: GHGraphQLApiOptions = {
 	allowErrors: false,
 };
 
-export const v3 = mem(async (
+export const v3uncached = async (
 	query: string,
 	options: GHRestApiOptions = v3defaults,
 ): Promise<RestResponse> => {
 	const {ignoreHTTPStatus, method, body, headers, json} = {...v3defaults, ...options};
-	const {personalToken} = await settings;
+	const personalToken = await getToken();
 
 	if (!query.startsWith('https')) {
 		query = query.startsWith('/') ? query.slice(1) : ['repos', getRepo()!.nameWithOwner, query].filter(Boolean).join('/');
 	}
 
 	const url = new URL(query, api3);
-	features.log.http(url);
+	log.http(url.href);
 	const response = await fetch(url.href, {
 		method,
 		body: body && JSON.stringify(body),
 		headers: {
 			'User-Agent': 'Refined GitHub',
-			Accept: 'application/vnd.github.v3+json',
+			'Accept': 'application/vnd.github.v3+json',
 			...headers,
 			...personalToken && {Authorization: `token ${personalToken}`},
 		},
@@ -142,11 +125,13 @@ export const v3 = mem(async (
 	}
 
 	throw await getError(apiResponse);
-}, {
+};
+
+export const v3 = mem(v3uncached, {
 	cacheKey: JSON.stringify,
 });
 
-export const v3paginated = async function * (
+const v3paginated = async function * (
 	query: string,
 	options?: GHRestApiOptions,
 ): AsyncGenerator<AsyncReturnType<typeof v3>> {
@@ -164,30 +149,69 @@ export const v3paginated = async function * (
 	}
 };
 
-export const v4 = mem(async (
+const v3hasAnyItems = async (
+	query: string,
+	options: GHRestApiOptions = {},
+): Promise<boolean> => {
+	const url = new URL(query, api3);
+	url.searchParams.set('per_page', '1'); // Ensure we create pagination after 1 item
+	url.searchParams.set('page', '9999'); // Get an empty response
+	const {headers} = await v3(url.pathname + url.search, options);
+
+	// If there's more than 1 item, we get a `Link` header
+	return headers.has('link');
+};
+
+const v4uncached = async (
 	query: string,
 	options: GHGraphQLApiOptions = v4defaults,
 ): Promise<AnyObject> => {
-	const personalToken = await expectToken();
+	const personalToken = await getToken();
 
-	if (/^(query )?{/.test(query.trimStart())) {
-		throw new TypeError('`query` should only be what’s inside \'query {...}\', like \'user(login: "foo") { name }\', but is \n' + query);
+	if (!personalToken) {
+		throw new RefinedGitHubAPIError('Personal token required for this feature');
 	}
 
-	query = query.replace('repository() {', () => `repository(owner: "${getRepo()!.owner}", name: "${getRepo()!.name}") {`);
+	// TODO: Remove automatic usage of globals via `getRepo()`
+	// https://github.com/refined-github/refined-github/issues/5821
+	const currentRepoIfAny = getRepo(); // Don't destructure, it's `undefined` outside repos
+	query = query.replace('repository() {', () => 'repository(owner: $owner, name: $name) {');
 
-	features.log.http(`{
-		${query}
-	}`);
+	// Automatically provide variables common variables only when used.
+	// GraphQL doesn't like unused variables.
+	const variables: JsonObject = {};
+	const parameters: string[] = [];
+	if (query.includes('$owner')) {
+		variables.owner = currentRepoIfAny!.owner;
+		parameters.push('$owner: String!');
+	}
+
+	if (query.includes('$name')) {
+		variables.name = currentRepoIfAny!.name;
+		parameters.push('$name: String!');
+	}
+
+	Object.assign(variables, options.variables);
+
+	const fullQuery = /^\s*(?:query|mutation)/.test(query)
+		? query
+		: parameters.length === 0
+			? `query {${query}}`
+			: `query (${parameters.join(',')}) {${query}}`;
+
+	log.http(fullQuery);
 
 	const response = await fetch(api4, {
 		headers: {
 			'User-Agent': 'Refined GitHub',
-			Authorization: `bearer ${personalToken}`,
-			Accept: 'application/vnd.github.merge-info-preview+json',
+			'Content-Type': 'application/json',
+			'Authorization': `bearer ${personalToken}`,
 		},
 		method: 'POST',
-		body: JSON.stringify({query: query.trimStart().startsWith('mutation') ? query : `{${query}}`}),
+		body: JSON.stringify({
+			variables,
+			query: fullQuery,
+		}),
 	});
 
 	const apiResponse: GraphQLResponse = await response.json();
@@ -206,13 +230,15 @@ export const v4 = mem(async (
 	}
 
 	throw await getError(apiResponse as JsonObject);
-}, {
+};
+
+const v4 = mem(v4uncached, {
 	cacheKey([query, options]) {
 		// `repository()` uses global state and must be handled explicitly
 		// https://github.com/refined-github/refined-github/issues/5821
 		// https://github.com/sindresorhus/eslint-plugin-unicorn/issues/1864
 		const key = [query, options];
-		if (query.includes('repository() {')) {
+		if (query.includes('repository() {') || query.includes('owner: $owner, name: $name')) {
 			key.push(getRepo()?.nameWithOwner);
 		}
 
@@ -220,8 +246,8 @@ export const v4 = mem(async (
 	},
 });
 
-export async function getError(apiResponse: JsonObject): Promise<RefinedGitHubAPIError> {
-	const {personalToken} = await settings;
+async function getError(apiResponse: JsonObject): Promise<RefinedGitHubAPIError> {
+	const personalToken = await getToken();
 
 	if ((apiResponse.message as string)?.includes('API rate limit exceeded')) {
 		return new RefinedGitHubAPIError(
@@ -243,8 +269,21 @@ export async function getError(apiResponse: JsonObject): Promise<RefinedGitHubAP
 		personalToken
 			? 'Ensure that your token has access to this repo.'
 			: 'Maybe adding a token in the options will fix this issue.',
-		JSON.stringify(apiResponse, null, '\t'), // Beautify
+		JSON.stringify(apiResponse, undefined, '\t'), // Beautify
 	);
 	error.response = apiResponse;
 	return error;
 }
+
+const api = {
+	v3,
+	v4,
+	v3paginated,
+	v3hasAnyItems,
+	v3uncached,
+	v4uncached,
+	escapeKey,
+	getError,
+};
+
+export default api;

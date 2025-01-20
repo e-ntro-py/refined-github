@@ -1,12 +1,14 @@
 import React from 'dom-chef';
-import select from 'select-dom';
 import * as pageDetect from 'github-url-detection';
-import {GitPullRequestIcon} from '@primer/octicons-react';
+import GitPullRequestIcon from 'octicons-plain-react/GitPullRequest';
+import batchedFunction from 'batched-function';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {buildRepoURL} from '../github-helpers';
-import getDefaultBranch from '../github-helpers/get-default-branch';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {buildRepoURL} from '../github-helpers/index.js';
+import getDefaultBranch from '../github-helpers/get-default-branch.js';
+import observe from '../helpers/selector-observer.js';
+import {expectToken} from '../github-helpers/github-token.js';
 
 type BranchInfo = {
 	baseRef: string;
@@ -14,14 +16,14 @@ type BranchInfo = {
 };
 
 function isClosed(prLink: HTMLElement): boolean {
-	return Boolean(prLink.closest('.js-issue-row')!.querySelector('.octicon.merged, .octicon.closed'));
+	return Boolean(prLink.closest('.js-issue-row')!.querySelector(['.octicon.merged', '.octicon.closed']));
 }
 
 function buildQuery(issueIds: string[]): string {
 	return `
 		repository() {
 			${issueIds.map(id => `
-				${id}: pullRequest(number: ${id.replace(/\D/g, '')}) {
+				${id}: pullRequest(number: ${id.replaceAll(/\D/g, '')}) {
 					baseRef {id}
 					baseRefName
 				}
@@ -30,12 +32,7 @@ function buildQuery(issueIds: string[]): string {
 	`;
 }
 
-async function init(): Promise<false | void> {
-	const prLinks = select.all('.js-issue-row .js-navigation-open[data-hovercard-type="pull_request"]');
-	if (prLinks.length === 0) {
-		return false;
-	}
-
+async function add(prLinks: HTMLElement[]): Promise<void> {
 	const query = buildQuery(prLinks.map(pr => pr.id));
 	const [data, defaultBranch] = await Promise.all([
 		api.v4(query),
@@ -54,11 +51,11 @@ async function init(): Promise<false | void> {
 			continue;
 		}
 
-		const branch = pr.baseRef && buildRepoURL(`tree/${pr.baseRefName}`);
+		const branch = pr.baseRef && buildRepoURL('tree', pr.baseRefName);
 
 		prLink.parentElement!.querySelector('.text-small.color-fg-muted .d-none.d-md-inline-flex')!.append(
 			<span className="issue-meta-section ml-2">
-				<GitPullRequestIcon/>
+				<GitPullRequestIcon />
 				{' To '}
 				<span
 					className="commit-ref css-truncate user-select-contain mb-n1"
@@ -73,11 +70,22 @@ async function init(): Promise<false | void> {
 	}
 }
 
+async function init(signal: AbortSignal): Promise<false | void> {
+	await expectToken();
+	observe('.js-issue-row .js-navigation-open[data-hovercard-type="pull_request"]', batchedFunction(add, {delay: 100}), {signal});
+}
+
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isRepoIssueOrPRList,
 	],
-	awaitDomReady: true, // TODO: Use observe + batched-function
-	deduplicate: 'has-rgh-inner',
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/sandbox/pulls?q=is%3Apr+is%3Aopen+pr+branch
+
+*/

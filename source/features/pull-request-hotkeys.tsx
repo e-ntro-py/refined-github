@@ -1,13 +1,19 @@
-import select from 'select-dom';
+import {$$} from 'select-dom/strict.js';
 import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import {addHotkey} from '../github-helpers/hotkey';
+import features from '../feature-manager.js';
+import {addHotkey} from '../github-helpers/hotkey.js';
 
 async function init(): Promise<void> {
-	const tabnav = await elementReady('#partial-discussion-header + .tabnav');
-	const tabs = select.all('a.tabnav-tab', tabnav);
+	const tabnav = await elementReady([
+		'[aria-label="Pull request tabs"]',
+		'[aria-label="Pull request navigation tabs"]', // Commits list tab
+	].join(', '));
+	const tabs = $$([
+		'a.tabnav-tab',
+		'a[role="tab"]', // Commits list tab
+	], tabnav);
 	const lastTab = tabs.length - 1;
 	const selectedIndex = tabs.findIndex(tab => tab.classList.contains('selected'));
 
@@ -33,3 +39,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/sandbox/pull/4
+
+*/

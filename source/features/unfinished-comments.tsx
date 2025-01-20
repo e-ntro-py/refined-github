@@ -1,23 +1,27 @@
-import select from 'select-dom';
+import {$$} from 'select-dom';
 import delegate from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
+import features from '../feature-manager.js';
 
-let documentTitle: string | undefined;
-let submitting: number | undefined;
+let submitting: ReturnType<typeof setTimeout> | undefined;
+
+const prefix = '✏️ Comment - ';
+
+function isFieldDirty(field: HTMLTextAreaElement): boolean {
+	return field.matches('[class*="Textarea__StyledTextarea"]')
+		? field.value.length > 0 // React fields update both value and textContent, so default to "filled === dirty"
+		: field.value !== field.textContent;
+}
 
 function hasDraftComments(): boolean {
-	// `[disabled]` excludes the PR description field that `wait-for-checks` disables while it waits
 	// `[id^="convert-to-issue-body"]` excludes the hidden pre-filled textareas created when opening the dropdown menu of review comments
-	return select.all('textarea:not([disabled], [id^="convert-to-issue-body"])').some(textarea =>
-		textarea.value !== textarea.textContent, // Exclude comments being edited but not yet changed (and empty comment fields)
-	);
+	return $$('textarea:not([id^="convert-to-issue-body"])').some(f => isFieldDirty(f));
 }
 
 function disableOnSubmit(): void {
 	clearTimeout(submitting);
-	submitting = window.setTimeout(() => {
+	submitting = setTimeout(() => {
 		submitting = undefined;
 	}, 2000);
 }
@@ -28,16 +32,14 @@ function updateDocumentTitle(): void {
 	}
 
 	if (document.visibilityState === 'hidden' && hasDraftComments()) {
-		documentTitle = document.title;
-		document.title = '✏️ Draft - ' + document.title;
-	} else if (documentTitle) {
-		document.title = documentTitle;
-		documentTitle = undefined;
+		document.title = prefix + document.title;
+	} else if (document.title.startsWith(prefix)) {
+		document.title = document.title.replace(prefix, '');
 	}
 }
 
 function init(signal: AbortSignal): void {
-	delegate(document, 'form', 'submit', disableOnSubmit, {capture: true, signal});
+	delegate('form', 'submit', disableOnSubmit, {capture: true, signal});
 	document.addEventListener('visibilitychange', updateDocumentTitle, {signal});
 }
 
@@ -47,3 +49,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/sandbox/pull/4
+
+*/

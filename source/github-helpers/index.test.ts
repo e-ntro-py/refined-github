@@ -3,13 +3,12 @@ import {test, assert} from 'vitest';
 import {
 	getConversationNumber,
 	parseTag,
-	compareNames,
+	isUsernameAlreadyFullName,
 	getLatestVersionTag,
-	shouldFeatureRun,
-} from '.';
+} from './index.js';
 
 test('getConversationNumber', () => {
-	const pairs = new Map<string, string | undefined>([
+	const pairs = new Map<string, number | undefined>([
 		[
 			'https://github.com',
 			undefined,
@@ -48,23 +47,23 @@ test('getConversationNumber', () => {
 		],
 		[
 			'https://github.com/refined-github/refined-github/pull/148/commits/0019603b83bd97c2f7ef240969f49e6126c5ec85',
-			'148',
+			148,
 		],
 		[
 			'https://github.com/refined-github/refined-github/pull/148/commits/00196',
-			'148',
+			148,
 		],
 		[
 			'https://github.com/refined-github/refined-github/pull/148/commits',
-			'148',
+			148,
 		],
 		[
 			'https://github.com/refined-github/refined-github/pull/148',
-			'148',
+			148,
 		],
 		[
 			'https://github.com/refined-github/refined-github/issues/146',
-			'146',
+			146,
 		],
 		[
 			'https://github.com/refined-github/refined-github/issues',
@@ -86,14 +85,17 @@ test('parseTag', () => {
 	assert.deepEqual(parseTag('@hi/you@1.2.3'), {namespace: '@hi/you', version: '1.2.3'});
 });
 
-test('compareNames', () => {
-	assert.isTrue(compareNames('johndoe', 'John Doe'));
-	assert.isTrue(compareNames('john-doe', 'John Doe'));
-	assert.isTrue(compareNames('john-wdoe', 'John W. Doe'));
-	assert.isTrue(compareNames('john-doe-jr', 'John Doe Jr.'));
-	assert.isTrue(compareNames('nicolo', 'Nicolò'));
-	assert.isFalse(compareNames('dotconnor', 'Connor Love'));
-	assert.isFalse(compareNames('fregante ', 'Federico Brigante'));
+test('isUsernameAlreadyFullName', () => {
+	assert.isTrue(isUsernameAlreadyFullName('johndoe', 'John Doe'));
+	assert.isTrue(isUsernameAlreadyFullName('john-doe', 'John Doe'));
+	assert.isTrue(isUsernameAlreadyFullName('john-wdoe', 'John W. Doe'));
+	assert.isTrue(isUsernameAlreadyFullName('john-doe-jr', 'John Doe Jr.'));
+	assert.isTrue(isUsernameAlreadyFullName('nicolo', 'Nicolò'));
+
+	assert.isFalse(isUsernameAlreadyFullName('wonderful', 'wonder'));
+	assert.isFalse(isUsernameAlreadyFullName('dotconnor', 'Connor Love'));
+	assert.isFalse(isUsernameAlreadyFullName('fregante', 'Federico Brigante'));
+	assert.isFalse(isUsernameAlreadyFullName('chipwolf', 'Chip Wolf ‮ '));
 });
 
 test('getLatestVersionTag', () => {
@@ -118,51 +120,4 @@ test('getLatestVersionTag', () => {
 		'2020-10-10',
 		'v1.0-1',
 	]), 'lol v0.0.0', 'Non-version tags should short-circuit the sorting and return the first tag');
-});
-
-test('shouldFeatureRun', () => {
-	const yes = (): boolean => true;
-	const no = (): boolean => false;
-	const yesYes = [yes, yes];
-	const yesNo = [yes, no];
-	const noNo = [no, no];
-
-	assert.isTrue(shouldFeatureRun({}), 'A lack of conditions should mean "run everywhere"');
-
-	assert.isFalse(shouldFeatureRun({
-		asLongAs: yesNo,
-	}), 'Every `asLongAs` should be true to run');
-
-	assert.isFalse(shouldFeatureRun({
-		asLongAs: yesNo,
-		include: [yes],
-	}), 'Every `asLongAs` should be true to run, regardless of `include`');
-
-	assert.isFalse(shouldFeatureRun({
-		include: noNo,
-	}), 'At least one `include` should be true to run');
-
-	assert.isTrue(shouldFeatureRun({
-		include: yesNo,
-	}), 'If one `include` is true, then it should run');
-
-	assert.isFalse(shouldFeatureRun({
-		exclude: yesNo,
-	}), 'If any `exclude` is true, then it should not run');
-
-	assert.isFalse(shouldFeatureRun({
-		include: [yes],
-		exclude: yesNo,
-	}), 'If any `exclude` is true, then it should not run, regardless of `include`');
-
-	assert.isFalse(shouldFeatureRun({
-		asLongAs: [yes],
-		exclude: yesNo,
-	}), 'If any `exclude` is true, then it should not run, regardless of `asLongAs`');
-
-	assert.isFalse(shouldFeatureRun({
-		asLongAs: [yes],
-		include: yesYes,
-		exclude: yesNo,
-	}), 'If any `exclude` is true, then it should not run, regardless of `asLongAs` and `include`');
 });

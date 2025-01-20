@@ -1,16 +1,17 @@
-import select from 'select-dom';
-import onetime from 'onetime';
+import {$optional} from 'select-dom/strict.js';
+import {messageRuntime} from 'webext-msg';
 
-import features from '../feature-manager';
-import {registerHotkey} from '../github-helpers/hotkey';
+import onetime from '../helpers/onetime.js';
+import features from '../feature-manager.js';
+import {registerHotkey} from '../github-helpers/hotkey.js';
 
 function openInNewTab(): void {
-	const selected = select('.navigation-focus a.js-navigation-open[href]');
+	const selected = $optional('.navigation-focus a.js-navigation-open[href]');
 	if (!selected) {
 		return;
 	}
 
-	void browser.runtime.sendMessage({
+	void messageRuntime({
 		openUrls: [selected.href],
 	});
 
@@ -18,16 +19,23 @@ function openInNewTab(): void {
 	selected.closest('.unread')?.classList.replace('unread', 'read');
 }
 
-function init(): void {
-	registerHotkey('O', openInNewTab);
+function initOnce(): void {
+	registerHotkey('Shift+O', openInNewTab);
 }
 
 void features.add(import.meta.url, {
-	include: [
-		() => select.exists('.js-navigation-open'),
-	],
 	shortcuts: {
 		'shift o': 'Open selection in new tab',
 	},
-	init: onetime(init),
+	init: onetime(initOnce),
 });
+
+/*
+
+Test URLs:
+
+https://github.com/notifications
+https://github.com/refined-github/refined-github
+https://github.com/refined-github/refined-github/issues
+
+*/
