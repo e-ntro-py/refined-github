@@ -1,32 +1,36 @@
 import './ci-link.css';
+
 import React from 'dom-chef';
-import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {buildRepoURL} from '../github-helpers';
-import attachElement from '../helpers/attach-element';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {buildRepoURL} from '../github-helpers/index.js';
+import observe from '../helpers/selector-observer.js';
+import getChecks from './ci-link.gql';
+import {expectToken} from '../github-helpers/github-token.js';
 
-async function getHead(): Promise<string> {
-	const {repository} = await api.v4(`
-		repository() {
-			defaultBranchRef {
-				target {
-					oid
-				}
-			}
+async function getCommitWithChecks(): Promise<string | undefined> {
+	const {repository} = await api.v4(getChecks);
+	// Check earlier commits just in case the last one is CI-generated and doesn't have checks
+	for (const commit of repository.defaultBranchRef.target.history.nodes) {
+		if (commit.statusCheckRollup) {
+			return commit.oid;
 		}
-	`);
+	}
 
-	return repository.defaultBranchRef.target.oid;
+	return undefined;
 }
 
-function getCiDetails(commit: string): HTMLElement {
+async function add(anchor: HTMLElement): Promise<void> {
+	const commit = await getCommitWithChecks();
+	if (!commit) {
+		return;
+	}
+
 	const endpoint = buildRepoURL('commits/checks-statuses-rollups');
-	return (
-		// `span` also required by `attachElement`’s deduplicator
-		<span className="rgh-ci-link">
+	anchor.parentElement!.append(
+		<span className="rgh-ci-link ml-1" title="CI status of latest commit">
 			<batch-deferred-content hidden data-url={endpoint}>
 				<input
 					name="oid"
@@ -34,27 +38,28 @@ function getCiDetails(commit: string): HTMLElement {
 					data-targets="batch-deferred-content.inputs"
 				/>
 			</batch-deferred-content>
-		</span>
+		</span>,
 	);
+
+	// A parent is clipping the popup
+	anchor.closest('.AppHeader-context-full')?.style.setProperty('overflow', 'visible');
 }
 
-async function init(): Promise<void> {
-	const head = await getHead();
-	const repoTitle = await elementReady('[itemprop="name"]');
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
 
-	attachElement(
-		// Append to repo title (aware of forks and private repos)
-		repoTitle!.parentElement,
-		{append: () => getCiDetails(head)},
-	);
+	observe([
+		// Desktop
+		'.AppHeader-context-item:not([data-hovercard-type])',
+
+		// Mobile. `> *:first-child` avoids finding our own element
+		'.AppHeader-context-compact-mainItem > span:first-child',
+	], add, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasRepoHeader,
-	],
-	exclude: [
-		pageDetect.isEmptyRepo,
 	],
 	init,
 });

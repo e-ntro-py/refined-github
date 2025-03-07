@@ -1,14 +1,15 @@
 import React from 'dom-chef';
+import {$} from 'select-dom/strict.js';
 
-import {wrapAll} from '../helpers/dom-utils';
+import {wrapAll} from '../helpers/dom-utils.js';
 
 // Wrap a list of elements with BtnGroup + ensure each has BtnGroup-item
-export const groupButtons = (buttons: Element[]): Element => {
+export function groupButtons(buttons: Element[], ...classes: string[]): HTMLElement {
 	// Ensure every button has this class
 	for (let button of buttons) {
 		if (!button.matches('button, .btn')) {
 			button.classList.add('BtnGroup-parent');
-			button = button.querySelector('.btn')!;
+			button = $('.btn', button);
 		}
 
 		button.classList.add('BtnGroup-item');
@@ -19,15 +20,17 @@ export const groupButtons = (buttons: Element[]): Element => {
 
 	// If it doesn't exist, wrap them in a new group
 	if (!group) {
-		group = <div className="BtnGroup"/>;
-		wrapAll(buttons, group);
+		group = <div className="BtnGroup" />;
+		wrapAll(group, ...buttons);
 	}
 
+	group.classList.add(...classes);
+
 	return group;
-};
+}
 
 // Find immediate `.btn` siblings of `button` and wrap them with groupButtons
-export const groupSiblings = (button: Element): Element => {
+export function groupSiblings(button: Element): Element {
 	const siblings = [button];
 	let previous = button.previousElementSibling;
 	while (previous?.classList.contains('btn')) {
@@ -42,4 +45,4 @@ export const groupSiblings = (button: Element): Element => {
 	}
 
 	return groupButtons(siblings);
-};
+}

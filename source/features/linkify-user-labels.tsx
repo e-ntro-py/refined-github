@@ -1,38 +1,38 @@
 import React from 'dom-chef';
 import * as pageDetect from 'github-url-detection';
 
-import {wrap} from '../helpers/dom-utils';
-import features from '../feature-manager';
-import {buildRepoURL} from '../github-helpers';
-import getCommentAuthor from '../github-helpers/get-comment-author';
-import observe from '../helpers/selector-observer';
-
-const selectors = [
-	'.tooltipped[aria-label*="a member of the"]',
-	'.tooltipped[aria-label^="This user has previously committed"]',
-];
-
-function init(signal: AbortSignal): void {
-	observe(selectors, linkify, {signal});
-}
+import {wrap} from '../helpers/dom-utils.js';
+import features from '../feature-manager.js';
+import {buildRepoURL} from '../github-helpers/index.js';
+import getCommentAuthor from '../github-helpers/get-comment-author.js';
+import observe from '../helpers/selector-observer.js';
 
 function linkify(label: Element): void {
 	if (label.closest('a')) {
-		features.log.error(import.meta.url, 'Already linkified, feature needs to be updated');
-		return;
+		throw new Error('Already linkified, feature needs to be updated');
 	}
 
 	const url = new URL(buildRepoURL('commits'));
 	url.searchParams.set('author', getCommentAuthor(label));
-	wrap(label, <a className="Link--secondary" href={url.href}/>);
+	wrap(label, <a className="Link--secondary" href={url.href} />);
+}
+
+function init(signal: AbortSignal): void {
+	observe([
+		'span[data-testid="comment-author-association"][aria-label*="a member of the"]',
+		'span[data-testid="comment-author-association"][aria-label^="This user has previously committed"]',
+		// PRs and pre-issue redesign 2024
+		'.tooltipped[aria-label*="a member of the"]',
+		'.tooltipped[aria-label^="This user has previously committed"]',
+	], linkify, {signal});
 }
 
 void features.add(import.meta.url, {
-	include: [
-		pageDetect.hasComments,
-	],
 	asLongAs: [
 		pageDetect.isRepo,
+	],
+	include: [
+		pageDetect.hasComments,
 	],
 	init,
 });

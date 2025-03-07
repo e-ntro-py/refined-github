@@ -1,88 +1,105 @@
 import 'webext-dynamic-content-scripts';
-import cache from 'webext-storage-cache'; // Also needed to regularly clear the cache
-import {isSafari} from 'webext-detect-page';
-import {objectKeys} from 'ts-extras';
-import addDomainPermissionToggle from 'webext-domain-permission-toggle';
+import 'webext-bugs/options-menu-item';
+import {customizeNoAllUrlsErrorMessage} from 'webext-bugs/no-all-urls';
+import {globalCache} from 'webext-storage-cache'; // Also needed to regularly clear the cache
+import addPermissionToggle from 'webext-permission-toggle';
+import {StorageItem} from 'webext-storage';
+import {handleMessages} from 'webext-msg';
 
-import optionsStorage from './options-storage';
-import {getRghIssueUrl} from './helpers/rgh-issue-link';
-import isDevelopmentVersion from './helpers/is-development-version';
+import optionsStorage, {hasToken} from './options-storage.js';
+import isDevelopmentVersion from './helpers/is-development-version.js';
+import {doesBrowserActionOpenOptions} from './helpers/feature-utils.js';
+import {styleHotfixes} from './helpers/hotfix.js';
+import {fetchText} from './helpers/isomorphic-fetch.js';
+import addReloadWithoutContentScripts from './options/reload-without.js';
+
+const {version} = chrome.runtime.getManifest();
+
+const welcomeShown = new StorageItem('welcomed', {defaultValue: false});
 
 // GHE support
-addDomainPermissionToggle();
+addPermissionToggle();
 
-const messageHandlers = {
-	openUrls(urls: string[], {tab}: browser.runtime.MessageSender) {
-		for (const [i, url] of urls.entries()) {
-			void browser.tabs.create({
+// Add "Reload without content scripts" functionality
+addReloadWithoutContentScripts();
+
+// Extend the error message for the "No All URLs" bugfix
+customizeNoAllUrlsErrorMessage('Refined GitHub is not meant to run on every website. If you’re looking to enable it on GitHub Enterprise, follow the instructions in the Options page.');
+
+handleMessages({
+	async openUrls(urls: string[], {tab}: chrome.runtime.MessageSender) {
+		for (const [index, url] of urls.entries()) {
+			void chrome.tabs.create({
 				url,
-				index: tab!.index + i + 1,
+				index: tab!.index + index + 1,
 				active: false,
 			});
 		}
 	},
-	closeTab(_: any, {tab}: browser.runtime.MessageSender) {
-		void browser.tabs.remove(tab!.id!);
+	async closeTab(_: any, {tab}: chrome.runtime.MessageSender) {
+		void chrome.tabs.remove(tab!.id!);
 	},
-	async fetch(url: string) {
-		const response = await fetch(url);
-		return response.text();
-	},
+	fetchText,
 	async fetchJSON(url: string) {
 		const response = await fetch(url);
 		return response.json();
 	},
-	openOptionsPage() {
-		void browser.runtime.openOptionsPage();
+	async openOptionsPage() {
+		return chrome.runtime.openOptionsPage();
 	},
-};
-
-browser.runtime.onMessage.addListener((message: typeof messageHandlers, sender) => {
-	for (const id of objectKeys(message)) {
-		if (id in messageHandlers) {
-			return messageHandlers[id](message[id], sender);
-		}
-	}
+	async getStyleHotfixes() {
+		return styleHotfixes.get(version);
+	},
 });
 
-browser.browserAction.onClicked.addListener(async tab => {
+chrome.action.onClicked.addListener(async tab => {
+	if (doesBrowserActionOpenOptions) {
+		void chrome.runtime.openOptionsPage();
+		return;
+	}
+
 	const {actionUrl} = await optionsStorage.getAll();
-	void browser.tabs.create({
+	if (!actionUrl) {
+		// Default to options page if unset
+		void chrome.runtime.openOptionsPage();
+		return;
+	}
+
+	await chrome.tabs.create({
 		openerTabId: tab.id,
-		url: actionUrl || 'https://github.com',
+		url: actionUrl,
 	});
 });
 
-async function hasUsedStorage(): Promise<boolean> {
-	return (
-		await browser.storage.sync.getBytesInUse() > 0
-		// Note: Not available in Firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1385832
-		|| Number(await browser.storage.local.getBytesInUse?.()) > 0
-	);
-}
-
-async function isFirstInstall(suggestedReason: string): Promise<boolean> {
-	return (
-		// Always exclude local installs from the welcome screen
-		!isDevelopmentVersion()
-
-		// Only if the reason is explicitly "install"
-		&& suggestedReason === 'install'
-
-		// Safari reports "install" even on updates #5412
-		&& !(isSafari() && await hasUsedStorage())
-	);
-}
-
-browser.runtime.onInstalled.addListener(async ({reason}) => {
-	// Only notify on install
-	if (await isFirstInstall(reason)) {
-		await browser.tabs.create({
-			url: getRghIssueUrl(3543),
-		});
+async function showWelcomePage(): Promise<void> {
+	if (await welcomeShown.get()) {
+		return;
 	}
 
-	// Hope that the feature was fixed in this version
-	await cache.delete('hotfixes:');
-	await cache.delete('style-hotfixes:');
+	const [token, permissions] = await Promise.all([
+		hasToken(), // We can't handle an invalid token on a "Welcome" page, so just check whether the user has ever set one
+		chrome.permissions.contains({origins: ['https://github.com/*']}),
+	]);
+
+	try {
+		if (token && permissions) {
+			// Mark as welcomed
+			return;
+		}
+
+		const url = chrome.runtime.getURL('assets/welcome.html');
+		await chrome.tabs.create({url});
+	} finally {
+		// Make sure it's always set to true even in case of errors
+		await welcomeShown.set(true);
+	}
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+	if (isDevelopmentVersion()) {
+		await globalCache.clear();
+	}
+
+	// Call after the reset above just in case we nuked Safari's base permissions
+	await showWelcomePage();
 });

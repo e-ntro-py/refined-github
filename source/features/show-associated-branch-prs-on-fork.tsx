@@ -1,12 +1,21 @@
-import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import * as pageDetect from 'github-url-detection';
-import {GitMergeIcon, GitPullRequestIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon} from '@primer/octicons-react';
+import './show-associated-branch-prs-on-fork.css';
 
-import observe from '../helpers/selector-observer';
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {cacheByRepo, upperCaseFirst} from '../github-helpers';
+import React from 'dom-chef';
+import {CachedFunction} from 'webext-storage-cache';
+import * as pageDetect from 'github-url-detection';
+import GitMergeIcon from 'octicons-plain-react/GitMerge';
+import GitPullRequestIcon from 'octicons-plain-react/GitPullRequest';
+import GitPullRequestClosedIcon from 'octicons-plain-react/GitPullRequestClosed';
+import GitPullRequestDraftIcon from 'octicons-plain-react/GitPullRequestDraft';
+import RepoForkedIcon from 'octicons-plain-react/RepoForked';
+import memoize from 'memoize';
+
+import observe from '../helpers/selector-observer.js';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {cacheByRepo} from '../github-helpers/index.js';
+import AssociatedPullRequests from './show-associated-branch-prs-on-fork.gql';
+import {expectToken} from '../github-helpers/github-token.js';
 
 type PullRequest = {
 	timelineItems: {
@@ -18,43 +27,23 @@ type PullRequest = {
 	url: string;
 };
 
-export const getPullRequestsAssociatedWithBranch = cache.function('associatedBranchPullRequests', async (): Promise<Record<string, PullRequest>> => {
-	const {repository} = await api.v4(`
-		repository() {
-			refs(refPrefix: "refs/heads/", last: 100) {
-				nodes {
-					name
-					associatedPullRequests(last: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
-						nodes {
-							number
-							state
-							isDraft
-							url
-							timelineItems(last: 1, itemTypes: [HEAD_REF_DELETED_EVENT, HEAD_REF_RESTORED_EVENT]) {
-								nodes {
-									__typename
-								}
-							}
-						}
-					}
-				}
+export const pullRequestsAssociatedWithBranch = new CachedFunction('associatedBranchPullRequests', {
+	async updater(): Promise<Record<string, PullRequest>> {
+		const {repository} = await api.v4(AssociatedPullRequests);
+
+		const pullRequests: Record<string, PullRequest> = {};
+		for (const {name, associatedPullRequests} of repository.refs.nodes) {
+			const [prInfo] = associatedPullRequests.nodes as PullRequest[];
+			// Check if the ref was deleted, since the result includes pr's that are not in fact related to this branch but rather to the branch name.
+			const headRefWasDeleted = prInfo?.timelineItems.nodes[0]?.__typename === 'HeadRefDeletedEvent';
+			if (prInfo && !headRefWasDeleted) {
+				prInfo.state = prInfo.isDraft && prInfo.state === 'OPEN' ? 'DRAFT' : prInfo.state;
+				pullRequests[name] = prInfo;
 			}
 		}
-	`);
 
-	const pullRequests: Record<string, PullRequest> = {};
-	for (const {name, associatedPullRequests} of repository.refs.nodes) {
-		const [prInfo] = associatedPullRequests.nodes as PullRequest[];
-		// Check if the ref was deleted, since the result includes pr's that are not in fact related to this branch but rather to the branch name.
-		const headRefWasDeleted = prInfo?.timelineItems.nodes[0]?.__typename === 'HeadRefDeletedEvent';
-		if (prInfo && !headRefWasDeleted) {
-			prInfo.state = prInfo.isDraft && prInfo.state === 'OPEN' ? 'DRAFT' : prInfo.state;
-			pullRequests[name] = prInfo;
-		}
-	}
-
-	return pullRequests;
-}, {
+		return pullRequests;
+	},
 	maxAge: {hours: 1},
 	staleWhileRevalidate: {days: 4},
 	cacheKey: cacheByRepo,
@@ -67,41 +56,46 @@ export const stateIcon = {
 	DRAFT: GitPullRequestDraftIcon,
 };
 
-function addAssociatedPRLabel(branchCompareLink: Element, prInfo: PullRequest): void {
-	const StateIcon = stateIcon[prInfo.state];
-	const state = upperCaseFirst(prInfo.state);
+async function addLink(branch: HTMLElement): Promise<void> {
+	const prs = await pullRequestsAssociatedWithBranch.get();
+	const branchName = branch.getAttribute('title')!;
+	const prInfo = prs[branchName];
+	if (!prInfo) {
+		return;
+	}
 
-	branchCompareLink.replaceWith(
-		<div className="d-inline-block text-right ml-3">
+	const StateIcon = stateIcon[prInfo.state] ?? (() => {});
+	const stateClassName = prInfo.state.toLowerCase();
+
+	const cell = branch
+		.closest('tr.TableRow')!
+		.children
+		.item(4)!;
+
+	cell.classList.add('rgh-pr-cell');
+	cell.append(
+		<div className="rgh-pr-box">
 			<a
-				data-issue-and-pr-hovercards-enabled
 				href={prInfo.url}
-				data-hovercard-type="pull_request"
+				target="_blank" // Matches native behavior
 				data-hovercard-url={prInfo.url + '/hovercard'}
+				aria-label={`Link to the ${prInfo.isDraft ? 'draft ' : ''}pull request #${prInfo.number}`}
+				className="rgh-pr-link"
+				rel="noreferrer"
 			>
+				<StateIcon width={14} height={14} className={stateClassName} />
+				<RepoForkedIcon width={14} height={14} className={`mr-1 ${stateClassName}`} />
 				#{prInfo.number}
 			</a>
-			{' '}
-			<span
-				className={`State State--${prInfo.state.toLowerCase()} State--small ml-1`}
-			>
-				<StateIcon width={14} height={14}/> {state}
-			</span>
 		</div>,
 	);
 }
 
-async function addLink(branchCompareLink: Element): Promise<void> {
-	const associatedPullRequests = await getPullRequestsAssociatedWithBranch();
-	const branchName = branchCompareLink.closest('[branch]')!.getAttribute('branch')!;
-	const prInfo = associatedPullRequests[branchName];
-	if (prInfo) {
-		addAssociatedPRLabel(branchCompareLink, prInfo);
-	}
-}
-
-function init(signal: AbortSignal): void {
-	observe('.test-compare-link', addLink, {signal});
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+	// Memoize because it's being called twice for each. Ideally this should be part of the selector observer
+	// https://github.com/refined-github/refined-github/pull/7194#issuecomment-1894972091
+	observe('react-app[app-name=repos-branches] a[class*=BranchName] div[title]', memoize(addLink), {signal});
 }
 
 void features.add(import.meta.url, {
@@ -113,3 +107,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/bfred-it-org/github-sandbox/branches
+
+*/

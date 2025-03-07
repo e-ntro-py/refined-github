@@ -1,15 +1,19 @@
 import React from 'dom-chef';
-import select from 'select-dom';
+import {elementExists} from 'select-dom';
+import {$, $optional} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
-import {BookIcon, CheckIcon, DiffIcon, DiffModifiedIcon} from '@primer/octicons-react';
+import BookIcon from 'octicons-plain-react/Book';
+import CheckIcon from 'octicons-plain-react/Check';
+import DiffIcon from 'octicons-plain-react/Diff';
+import DiffModifiedIcon from 'octicons-plain-react/DiffModified';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
-import {removeTextNodeContaining} from '../helpers/dom-utils';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
+import {removeTextNodeContaining} from '../helpers/dom-utils.js';
 
 function isHidingWhitespace(): boolean {
 	// The selector is the native button
-	return new URL(location.href).searchParams.get('w') === '1' || select.exists('button[name="w"][value="0"]:not([hidden])');
+	return new URL(location.href).searchParams.get('w') === '1' || elementExists('button[name="w"][value="0"]:not([hidden])');
 }
 
 function createWhitespaceButton(): HTMLElement {
@@ -28,19 +32,17 @@ function createWhitespaceButton(): HTMLElement {
 			className={'tooltipped tooltipped-s btn btn-sm tooltipped ' + (isHidingWhitespace() ? 'color-fg-subtle' : '')}
 			aria-label={`${isHidingWhitespace() ? 'Show' : 'Hide'} whitespace changes`}
 		>
-			{isHidingWhitespace() && <CheckIcon/>} No Whitespace
+			{isHidingWhitespace() && <CheckIcon />} No Whitespace
 		</a>
 	);
 }
 
-function attachPRButtons(dropdownIcon: SVGElement): void {
-	// TODO: Replace with :has selector
-	const dropdown = dropdownIcon.closest('details.diffbar-item')!;
-	const diffSettingsForm = select('form[action$="/diffview"]', dropdown)!;
+function attachPRButtons(dropdown: HTMLDetailsElement): void {
+	const diffSettingsForm = $('form[action$="/diffview"]', dropdown);
 
 	// Preserve data before emption the form
 	const isUnified = new FormData(diffSettingsForm).get('diff') === 'unified';
-	const token = select('[name="authenticity_token"]', diffSettingsForm)!;
+	const token = $('[name="authenticity_token"]', diffSettingsForm);
 
 	// Empty form except the token field
 	diffSettingsForm.replaceChildren(token);
@@ -49,13 +51,13 @@ function attachPRButtons(dropdownIcon: SVGElement): void {
 	const Icon = isUnified ? BookIcon : DiffIcon;
 	diffSettingsForm.append(
 		<button
-			className="tooltipped tooltipped-s ml-2 btn-link Link--muted p-2"
+			className="tooltipped tooltipped-s ml-2 btn-link Link--muted px-2"
 			aria-label={`Switch to the ${type} diff view`}
 			name="diff"
 			value={type}
 			type="submit"
 		>
-			<Icon className="v-align-middle"/>
+			<Icon className="v-align-middle" />
 		</button>,
 	);
 
@@ -63,13 +65,13 @@ function attachPRButtons(dropdownIcon: SVGElement): void {
 		diffSettingsForm.append(
 			<button
 				data-hotkey="d w"
-				className="tooltipped tooltipped-s btn-link Link--muted p-2"
+				className="tooltipped tooltipped-s btn-link Link--muted px-2"
 				aria-label="Hide whitespace changes"
 				name="w"
 				value="1"
 				type="submit"
 			>
-				<DiffModifiedIcon className="v-align-middle"/>
+				<DiffModifiedIcon className="v-align-middle" />
 			</button>,
 		);
 	}
@@ -77,29 +79,28 @@ function attachPRButtons(dropdownIcon: SVGElement): void {
 	dropdown.replaceWith(diffSettingsForm);
 
 	// Trim title
-	const prTitle = select('.pr-toolbar .js-issue-title');
-	if (prTitle && select.exists('.pr-toolbar progress-bar')) { // Only review view has progress-bar
+	const prTitle = $optional('.pr-toolbar .js-issue-title');
+	if (prTitle && elementExists('.pr-toolbar progress-bar')) { // Only review view has progress-bar
 		prTitle.style.maxWidth = '24em';
-		prTitle.title = prTitle.textContent!;
+		prTitle.title = prTitle.textContent;
 	}
 
 	// Make space for the new button #655
 	removeTextNodeContaining(
-		select('[data-hotkey="c"] strong')!.previousSibling!,
+		$('[data-hotkey="c"] strong').previousSibling!,
 		'Changes from',
 	);
 
 	// Remove extraneous padding around "Clear filters" button
-	select('.subset-files-tab')?.classList.replace('px-sm-3', 'ml-sm-2');
+	$optional('.subset-files-tab')?.classList.replace('px-sm-3', 'ml-sm-2');
 }
 
 function initPR(signal: AbortSignal): void {
 	// There are two "diff settings" element, one for mobile and one for the desktop. We only replace the one for the desktop
-	observe('.hide-sm.hide-md details.diffbar-item svg.octicon-gear', attachPRButtons, {signal});
+	observe('.hide-sm.hide-md details.diffbar-item:has(svg.octicon-gear)', attachPRButtons, {signal});
 }
 
 function attachButtons(nativeDiffButtons: HTMLElement): void {
-	// TODO: Replace with :has()
 	const anchor = nativeDiffButtons.parentElement!;
 
 	// `usesFloats` is necessary to ensure the order and spacing as seen in #5958
@@ -127,7 +128,6 @@ void features.add(import.meta.url, {
 	shortcuts,
 	include: [
 		pageDetect.isPRFiles,
-		pageDetect.isPRCommit,
 	],
 	exclude: [
 		pageDetect.isPRFile404,
@@ -137,7 +137,6 @@ void features.add(import.meta.url, {
 }, {
 	shortcuts,
 	include: [
-		pageDetect.isSingleCommit,
 		pageDetect.isCompare,
 	],
 	init,

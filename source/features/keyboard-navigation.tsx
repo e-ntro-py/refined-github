@@ -1,11 +1,12 @@
-import select from 'select-dom';
+import {$optional} from 'select-dom/strict.js';
+import {$$, elementExists} from 'select-dom';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import {isEditable} from '../helpers/dom-utils';
+import features from '../feature-manager.js';
+import {isEditable} from '../helpers/dom-utils.js';
 
 const isCommentGroupMinimized = (comment: HTMLElement): boolean =>
-	select.exists('.minimized-comment:not(.d-none)', comment)
+	elementExists('.minimized-comment:not(.d-none)', comment)
 	|| Boolean(comment.closest([
 		'.js-resolvable-thread-contents.d-none', // Regular comments
 		'details.js-resolvable-timeline-thread-container:not([open])', // Review comments
@@ -18,21 +19,22 @@ function runShortcuts(event: KeyboardEvent): void {
 
 	event.preventDefault();
 
-	const focusedComment = select(':target')!;
-	const items = select
-		.all([
+	const focusedComment = $optional(':target');
+	const items
+		= $$([
 			'.js-targetable-element[id^="diff-"]', // Files in diffs
 			'.js-minimizable-comment-group', // Comments (to be `.filter()`ed)
 		])
-		.filter(element =>
-			element.classList.contains('js-minimizable-comment-group')
-				? !isCommentGroupMinimized(element)
-				: true,
-		);
+			.filter(element =>
+				element.classList.contains('js-minimizable-comment-group')
+					? !isCommentGroupMinimized(element)
+					: true,
+			);
 
 	// `j` goes to the next comment, `k` goes back a comment
 	const direction = event.key === 'j' ? 1 : -1;
-	const currentIndex = items.indexOf(focusedComment);
+	// Without `focusedElement`, it will start from -1
+	const currentIndex = items.indexOf(focusedComment!);
 
 	// Start at 0 if nothing is; clamp index
 	const chosenCommentIndex = Math.min(
@@ -60,3 +62,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/pull/4030#discussion_r584184640
+
+*/

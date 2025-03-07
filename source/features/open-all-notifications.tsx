@@ -1,16 +1,18 @@
 import './open-all-notifications.css';
-import React from 'dom-chef';
-import select from 'select-dom';
-import * as pageDetect from 'github-url-detection';
-import {LinkExternalIcon} from '@primer/octicons-react';
-import delegate, {DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
-import openTabs from '../helpers/open-tabs';
-import {appendBefore} from '../helpers/dom-utils';
-import showToast from '../github-helpers/toast';
-import pluralize from '../helpers/pluralize';
-import observe from '../helpers/selector-observer';
+import React from 'dom-chef';
+import {$$, elementExists} from 'select-dom';
+import * as pageDetect from 'github-url-detection';
+import LinkExternalIcon from 'octicons-plain-react/LinkExternal';
+import delegate, {type DelegateEvent} from 'delegate-it';
+import {$} from 'select-dom/strict.js';
+
+import features from '../feature-manager.js';
+import openTabs from '../helpers/open-tabs.js';
+import {appendBefore} from '../helpers/dom-utils.js';
+import observe from '../helpers/selector-observer.js';
+import {multilineAriaLabel} from '../github-helpers/index.js';
+import {getIdentifiers} from '../helpers/feature-helpers.js';
 
 // Selector works on:
 // https://github.com/notifications (Grouped by date)
@@ -18,31 +20,26 @@ import observe from '../helpers/selector-observer';
 // https://github.com/notifications?query=reason%3Acomment (which is an unsaved filter)
 const notificationHeaderSelector = '.js-check-all-container .js-bulk-action-toasts ~ div .Box-header';
 
-const openUnread = features.getIdentifiers('open-notifications-button');
-const openSelected = features.getIdentifiers('open-selected-button');
+const openUnread = getIdentifiers('open-notifications-button');
+const openSelected = getIdentifiers('open-selected-button');
 
 function getUnreadNotifications(container: ParentNode = document): HTMLElement[] {
-	return select.all('.notification-unread', container);
+	return $$('.notification-unread', container);
 }
 
 async function openNotifications(notifications: Element[], markAsDone = false): Promise<void> {
-	const urls: string[] = [];
-	for (const notification of notifications) {
-		urls.push(notification.querySelector('a')!.href);
-	}
+	const urls = notifications
+		.reverse() // Open oldest first #6755
+		.map(notification => $('a', notification).href);
 
 	const openingTabs = openTabs(urls);
-	await showToast(openingTabs, {
-		message: 'Opening tabs…',
-		doneMessage: pluralize(urls.length, '$$ tab') + ' opened',
-	});
 	if (!await openingTabs) {
 		return;
 	}
 
 	for (const notification of notifications) {
 		if (markAsDone) {
-			notification.querySelector('[title="Done"]')!.click();
+			$('[title="Done"]', notification).click();
 		} else {
 			// Mark all as read instead
 			notification.classList.replace('notification-unread', 'notification-read');
@@ -59,25 +56,33 @@ async function openUnreadNotifications({delegateTarget, altKey}: DelegateEvent<M
 }
 
 async function openSelectedNotifications(): Promise<void> {
-	const selectedNotifications = select.all('.notifications-list-item :checked')
+	const selectedNotifications = $$('.notifications-list-item :checked')
 		.map(checkbox => checkbox.closest('.notifications-list-item')!);
 	await openNotifications(selectedNotifications);
 
-	if (!select.exists('.notification-unread')) {
+	if (!elementExists('.notification-unread')) {
 		removeOpenUnreadButtons();
 	}
 }
 
 function removeOpenUnreadButtons(container: ParentNode = document): void {
-	for (const button of select.all(openUnread.selector, container)) {
+	for (const button of $$(openUnread.selector, container)) {
 		button.remove();
 	}
 }
 
 function addSelectedButton(selectedActionsGroup: HTMLElement): void {
 	const button = (
-		<button className={'btn btn-sm ' + openSelected.class} type="button">
-			<LinkExternalIcon className="mr-1"/>Open
+		<button
+			type="button"
+			className={'btn btn-sm mr-2 tooltipped tooltipped-s ' + openSelected.class}
+			data-hotkey="p"
+			aria-label={multilineAriaLabel(
+				'Open selected notifications',
+				'Hotkey: P',
+			)}
+		>
+			<LinkExternalIcon className="mr-1" />Open
 		</button>
 	);
 	appendBefore(
@@ -99,7 +104,7 @@ function addToRepoGroup(markReadButton: HTMLElement): void {
 			className={'btn btn-sm mr-2 tooltipped tooltipped-w ' + openUnread.class}
 			aria-label="Open all unread notifications from this repo"
 		>
-			<LinkExternalIcon width={16}/> Open unread
+			<LinkExternalIcon width={16} /> Open unread
 		</button>,
 	);
 }
@@ -111,14 +116,14 @@ function addToMainHeader(notificationHeader: HTMLElement): void {
 
 	notificationHeader.append(
 		<button className={'btn btn-sm ml-auto d-none ' + openUnread.class} type="button">
-			<LinkExternalIcon className="mr-1"/>Open all unread
+			<LinkExternalIcon className="mr-1" />Open all unread
 		</button>,
 	);
 }
 
 function init(signal: AbortSignal): void {
-	delegate(document, openSelected.selector, 'click', openSelectedNotifications, {signal});
-	delegate(document, openUnread.selector, 'click', openUnreadNotifications, {signal});
+	delegate(openSelected.selector, 'click', openSelectedNotifications, {signal});
+	delegate(openUnread.selector, 'click', openUnreadNotifications, {signal});
 
 	observe(notificationHeaderSelector + ' .js-notifications-mark-selected-actions', addSelectedButton, {signal});
 	observe(notificationHeaderSelector, addToMainHeader, {signal});
@@ -129,8 +134,18 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.isNotifications,
 	],
-	exclude: [
-		pageDetect.isBlank, // Empty notification list
-	],
+	shortcuts: {
+		p: 'Open selected notifications',
+	},
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/notifications (Grouped by date)
+https://github.com/notifications (Grouped by repo)
+https://github.com/notifications?query=reason%3Acomment (which is an unsaved filter)
+
+*/

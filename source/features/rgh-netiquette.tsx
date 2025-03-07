@@ -1,13 +1,13 @@
 import React from 'dom-chef';
-import {InfoIcon} from '@primer/octicons-react';
+import InfoIcon from 'octicons-plain-react/Info';
 import * as pageDetect from 'github-url-detection';
 
-import createBanner from '../github-helpers/banner';
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
-import {isAnyRefinedGitHubRepo} from '../github-helpers';
-import {getNoticeText, shouldDisplayNotice} from './netiquette';
-import TimelineItem from '../github-helpers/timeline-item';
+import createBanner from '../github-helpers/banner.js';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
+import {isAnyRefinedGitHubRepo} from '../github-helpers/index.js';
+import {getResolvedText, wasClosedLongAgo} from './netiquette.js';
+import {TimelineItem, TimelineItemOld} from '../github-helpers/timeline-item.js';
 
 function addConversationBanner(newCommentBox: HTMLElement): void {
 	const button = (
@@ -15,19 +15,34 @@ function addConversationBanner(newCommentBox: HTMLElement): void {
 			type="button"
 			className="btn-link"
 			onClick={() => {
-				banner.remove();
 				newCommentBox.hidden = false;
+
+				// Unlink this button
+				button.replaceWith(button.firstChild!);
+
+				// Keep the banner, make it visible
+				// eslint-disable-next-line ts/no-use-before-define -- Cyclic
+				banner.firstElementChild!.classList.replace('rgh-bg-none', 'flash-error');
+
+				window.scrollBy({
+					top: 100,
+					behavior: 'smooth',
+				});
 			}}
-		>leave a comment
+		>comment
 		</button>
 	);
+
+	const isReactView = newCommentBox.matches('[data-testid="comment-composer"]');
+	const Wrapper = isReactView ? TimelineItem : TimelineItemOld;
 	const banner = (
-		<TimelineItem>
+		<Wrapper>
 			{createBanner({
-				icon: <InfoIcon className="mr-1"/>,
-				text: <>{getNoticeText()} If it must really be here, you can {button}.</>,
+				classes: ['rgh-bg-none'],
+				icon: <InfoIcon className="mr-1" />,
+				text: <>{getResolvedText()} If you want to say something helpful, you can leave a {button}. <strong>Do not</strong> report issues here.</>,
 			})}
-		</TimelineItem>
+		</Wrapper>
 	);
 	newCommentBox.before(banner);
 	newCommentBox.hidden = true;
@@ -35,11 +50,14 @@ function addConversationBanner(newCommentBox: HTMLElement): void {
 
 function init(signal: AbortSignal): void | false {
 	// Do not move to `asLongAs` because those conditions are run before `isConversation`
-	if (!shouldDisplayNotice()) {
+	if (!wasClosedLongAgo()) {
 		return false;
 	}
 
-	observe('#issuecomment-new:has(file-attachment)', addConversationBanner, {signal});
+	observe([
+		'#issuecomment-new:has(file-attachment)',
+		'[data-testid="comment-composer"]',
+	], addConversationBanner, {signal});
 }
 
 void features.add(import.meta.url, {

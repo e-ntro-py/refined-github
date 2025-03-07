@@ -1,16 +1,17 @@
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
+import {CachedFunction} from 'webext-storage-cache';
+import {countElements} from 'select-dom';
+import {$, $optional} from 'select-dom/strict.js';
 import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import fetchDom from '../helpers/fetch-dom';
-import * as api from '../github-helpers/api';
-import getTabCount from '../github-helpers/get-tab-count';
-import looseParseInt from '../helpers/loose-parse-int';
-import abbreviateNumber from '../helpers/abbreviate-number';
-import {buildRepoURL, cacheByRepo} from '../github-helpers';
-import {unhideOverflowDropdown} from './more-dropdown-links';
+import features from '../feature-manager.js';
+import fetchDom from '../helpers/fetch-dom.js';
+import api from '../github-helpers/api.js';
+import getTabCount from '../github-helpers/get-tab-count.js';
+import looseParseInt from '../helpers/loose-parse-int.js';
+import abbreviateNumber from '../helpers/abbreviate-number.js';
+import {buildRepoURL, cacheByRepo, getRepo} from '../github-helpers/index.js';
+import {unhideOverflowDropdown} from './more-dropdown-links.js';
 
 async function canUserEditOrganization(): Promise<boolean> {
 	return Boolean(await elementReady('.btn-primary[href$="repositories/new"]'));
@@ -26,55 +27,49 @@ function mustKeepTab(tab: HTMLElement): boolean {
 }
 
 function setTabCounter(tab: HTMLElement, count: number): void {
-	const tabCounter = select('.Counter', tab)!;
+	const tabCounter = $('.Counter', tab);
 	tabCounter.textContent = abbreviateNumber(count);
 	tabCounter.title = count > 999 ? String(count) : '';
 }
 
 function onlyShowInDropdown(id: string): void {
-	const tabItem = select(`[data-tab-item$="${id}"]`);
-	if (!tabItem && pageDetect.isEnterprise()) { // GHE #3962
+	// TODO: Use selector observer
+	const tabItem = $optional(`li:not([hidden]) > [data-tab-item$="${id}"]`);
+	if (!tabItem) { // #3962 #7140
 		return;
 	}
 
-	(tabItem!.closest('li') ?? tabItem!.closest('.UnderlineNav-item'))!.classList.add('d-none');
+	tabItem.closest('li')!.hidden = true;
 
-	const menuItem = select(`[data-menu-item$="${id}"]`)!;
+	const menuItem = $(`[data-menu-item$="${id}"]`);
 	menuItem.removeAttribute('data-menu-item');
 	menuItem.hidden = false;
 	// The item has to be moved somewhere else because the overflow nav is order-dependent
-	select('.UnderlineNav-actions ul')!.append(menuItem);
+	$('.UnderlineNav-actions ul').append(menuItem);
 }
 
-const getWikiPageCount = cache.function('wiki-page-count', async (): Promise<number> => {
-	const dom = await fetchDom(buildRepoURL('wiki'));
-	const counter = dom.querySelector('#wiki-pages-box .Counter');
+const wikiPageCount = new CachedFunction('wiki-page-count', {
+	async updater(): Promise<number> {
+		const dom = await fetchDom(buildRepoURL('wiki'));
+		const counter = dom.querySelector('#wiki-pages-box .Counter');
 
-	if (counter) {
-		return looseParseInt(counter);
-	}
+		if (counter) {
+			return looseParseInt(counter);
+		}
 
-	return dom.querySelectorAll('#wiki-content > .Box .Box-row').length;
-}, {
+		return countElements('#wiki-content > .Box .Box-row', dom);
+	},
 	maxAge: {hours: 1},
 	staleWhileRevalidate: {days: 5},
 	cacheKey: cacheByRepo,
 });
 
-const getWorkflowsCount = cache.function('workflows-count', async (): Promise<number> => {
-	const {repository: {workflowFiles}} = await api.v4(`
-		repository() {
-			workflowFiles: object(expression: "HEAD:.github/workflows") {
-				... on Tree { entries { oid } }
-			}
-		}
-	`);
-
-	return workflowFiles?.entries.length ?? 0;
-}, {
+const hasActionRuns = new CachedFunction('workflows-count', {
+	async updater(repoWithOwner: string): Promise<boolean> {
+		return api.v3hasAnyItems(`/repos/${repoWithOwner}/actions/runs`);
+	},
 	maxAge: {days: 1},
 	staleWhileRevalidate: {days: 10},
-	cacheKey: cacheByRepo,
 });
 
 async function updateWikiTab(): Promise<void | false> {
@@ -83,9 +78,9 @@ async function updateWikiTab(): Promise<void | false> {
 		return false;
 	}
 
-	const wikiPageCount = await getWikiPageCount();
-	if (wikiPageCount > 0) {
-		setTabCounter(wikiTab, wikiPageCount);
+	const count = await wikiPageCount.get();
+	if (count > 0) {
+		setTabCounter(wikiTab, count);
 	} else {
 		onlyShowInDropdown('wiki-tab');
 	}
@@ -93,7 +88,7 @@ async function updateWikiTab(): Promise<void | false> {
 
 async function updateActionsTab(): Promise<void | false> {
 	const actionsTab = await elementReady('[data-hotkey="g a"]');
-	if (!actionsTab || mustKeepTab(actionsTab) || await getWorkflowsCount() > 0) {
+	if (!actionsTab || mustKeepTab(actionsTab) || await hasActionRuns.get(getRepo()!.nameWithOwner)) {
 		return false;
 	}
 
@@ -131,21 +126,21 @@ async function moveRareTabs(): Promise<void | false> {
 	onlyShowInDropdown('insights-tab');
 }
 
-async function init(): Promise<void> {
-	await Promise.all([
-		moveRareTabs(),
-		updateActionsTab(),
-		updateWikiTab(),
-		updateProjectsTab(),
-	]);
-}
-
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasRepoHeader,
 	],
 	deduplicate: 'has-rgh',
-	init,
+	init: [
+		updateActionsTab,
+		updateWikiTab,
+		updateProjectsTab,
+	],
+}, {
+	include: [
+		pageDetect.hasRepoHeader,
+	],
+	init: moveRareTabs,
 }, {
 	include: [
 		pageDetect.isOrganizationProfile,
@@ -161,5 +156,7 @@ Test URLs:
 - Org with 0 projects: https://github.com/babel
 - Repo with 0 projects: https://github.com/babel/flavortown
 - Repo with 0 wiki: https://github.com/babel/babel-sublime-snippets
+- Repo with 0 actions: https://github.com/babel/jade-babel
+- Repo with some actions not on main branch: https://github.com/quatquatt/no-actions-menu
 
 */

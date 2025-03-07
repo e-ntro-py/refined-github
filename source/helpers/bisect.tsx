@@ -1,11 +1,20 @@
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
+import {CachedValue} from 'webext-storage-cache';
+import {$$} from 'select-dom';
+import {$optional} from 'select-dom/strict.js';
 import elementReady from 'element-ready';
 
-import pluralize from './pluralize';
-import featureLink from './feature-link';
-import {importedFeatures} from '../../readme.md';
+import pluralize from './pluralize.js';
+import {getFeatureUrl} from './rgh-links.js';
+import {importedFeatures} from '../feature-data.js';
+
+export const state = new CachedValue<FeatureID[]>('bisect', {maxAge: {minutes: 15}});
+
+function enableButtons(): void {
+	for (const button of $$('#rgh-bisect-dialog [aria-disabled]')) {
+		button.removeAttribute('aria-disabled');
+	}
+}
 
 // Split current list of features in half and create an options-like object to be applied on load
 // Bisecting 4 features: enable 2
@@ -16,10 +25,10 @@ const getMiddleStep = (list: any[]): number => Math.floor(list.length / 2);
 
 async function onChoiceButtonClick({currentTarget: button}: React.MouseEvent<HTMLButtonElement>): Promise<void> {
 	const answer = button.value;
-	const bisectedFeatures = (await cache.get<FeatureID[]>('bisect'))!;
+	const bisectedFeatures = (await state.get())!;
 
 	if (bisectedFeatures.length > 1) {
-		await cache.set('bisect', answer === 'yes'
+		await state.set(answer === 'yes'
 			? bisectedFeatures.slice(0, getMiddleStep(bisectedFeatures))
 			: bisectedFeatures.slice(getMiddleStep(bisectedFeatures)),
 		);
@@ -31,10 +40,15 @@ async function onChoiceButtonClick({currentTarget: button}: React.MouseEvent<HTM
 
 	// Last step, no JS feature was enabled
 	if (answer === 'yes') {
-		createMessageBox('No features were enabled on this page. Try disabling Refined GitHub to see if it belongs to it at all.');
+		createMessageBox(
+			<>
+				<p>Unable to identify feature. It might be a CSS-only feature, a <a href="https://github.com/refined-github/refined-github/wiki/Meta-features" target="_blank" rel="noreferrer">meta-feature</a>, or unrelated to Refined GitHub.</p>
+				<p>Try disabling Refined GitHub to see if the change or issue is caused by the extension.</p>
+			</>,
+		);
 	} else {
 		const feature = (
-			<a href={featureLink(bisectedFeatures[0])}>
+			<a href={getFeatureUrl(bisectedFeatures[0])}>
 				<code>{bisectedFeatures[0]}</code>
 			</a>
 		);
@@ -42,17 +56,17 @@ async function onChoiceButtonClick({currentTarget: button}: React.MouseEvent<HTM
 		createMessageBox(<>The change or issue is caused by {feature}.</>);
 	}
 
-	await cache.delete('bisect');
-	window.removeEventListener('visibilitychange', hideMessage);
+	await state.delete();
+	globalThis.removeEventListener('visibilitychange', hideMessage);
 }
 
 async function onEndButtonClick(): Promise<void> {
-	await cache.delete('bisect');
+	await state.delete();
 	location.reload();
 }
 
 function createMessageBox(message: Element | string, extraButtons?: Element): void {
-	select('#rgh-bisect-dialog')?.remove();
+	$optional('#rgh-bisect-dialog')?.remove();
 	document.body.append(
 		<div id="rgh-bisect-dialog" className="Box p-3">
 			<p>{message}</p>
@@ -65,14 +79,14 @@ function createMessageBox(message: Element | string, extraButtons?: Element): vo
 }
 
 async function hideMessage(): Promise<void> {
-	if (!await cache.get<FeatureID[]>('bisect')) {
+	if (!(await state.get())) {
 		createMessageBox('Process completed in another tab');
 	}
 }
 
 export default async function bisectFeatures(): Promise<Record<string, boolean> | void> {
 	// `bisect` stores the list of features to be split in half
-	const bisectedFeatures = await cache.get<FeatureID[]>('bisect');
+	const bisectedFeatures = await state.get();
 	if (!bisectedFeatures) {
 		return;
 	}
@@ -90,22 +104,22 @@ export default async function bisectFeatures(): Promise<Record<string, boolean> 
 	);
 
 	// Enable "Yes"/"No" buttons once the page is done loading
-	window.addEventListener('load', () => {
-		for (const button of select.all('#rgh-bisect-dialog [aria-disabled]')) {
-			button.removeAttribute('aria-disabled');
-		}
-	});
+	if (document.readyState === 'complete') {
+		enableButtons();
+	} else {
+		window.addEventListener('load', enableButtons);
+	}
 
 	// Hide message when the process is done elsewhere
-	window.addEventListener('visibilitychange', hideMessage);
+	globalThis.addEventListener('visibilitychange', hideMessage);
 
 	const half = getMiddleStep(bisectedFeatures);
 	const temporaryOptions: Record<string, boolean> = {};
 	for (const feature of importedFeatures) {
 		const index = bisectedFeatures.indexOf(feature);
-		temporaryOptions[`feature:${feature}`] = index > -1 && index < half;
+		temporaryOptions[`feature:${feature}`] = index !== -1 && index < half;
 	}
 
-	console.log(temporaryOptions);
+	console.log({temporaryOptions});
 	return temporaryOptions;
 }

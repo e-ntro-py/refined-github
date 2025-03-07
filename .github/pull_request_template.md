@@ -1,8 +1,8 @@
 <!--
 
-Thanks for contributing! 🍄 Do not ignore this template, plz.
+Thanks for contributing! 🍄 Do not ignore this, plz.
 
-1. Does this PR close/fix an existing issue? Write something like `Closes #10`
+1. Does this PR close/fix an existing issue? Write something like: Closes #10
 
 Help us test and visualize this PR:
 
@@ -13,6 +13,8 @@ Lastly:
 
 4. Open the PR as draft and review it yourself first. Fix what you find and explain weird code, if necessary.
 
+If you haven't done so yet, check out the Contributing page in the wiki: https://github.com/refined-github/refined-github/wiki/Contributing#metadata-guidelines
+
 -->
 
 
@@ -21,4 +23,3 @@ Lastly:
 
 
 ## Screenshot
-

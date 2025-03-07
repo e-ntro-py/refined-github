@@ -1,13 +1,14 @@
-import select from 'select-dom';
+import {$$} from 'select-dom';
+import {$} from 'select-dom/strict.js';
+import {onAbort} from 'abort-utils';
 import * as pageDetect from 'github-url-detection';
 import debounceFn from 'debounce-fn';
-import delegate, {DelegateEvent} from 'delegate-it';
+import delegate, {type DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
-import clickAll from '../helpers/click-all';
-import showToast from '../github-helpers/toast';
-import getItemsBetween from '../helpers/get-items-between';
-import onAbort from '../helpers/abort-controller';
+import features from '../feature-manager.js';
+import clickAll from '../helpers/click-all.js';
+import showToast from '../github-helpers/toast.js';
+import getItemsBetween from '../helpers/get-items-between.js';
 
 let previousFile: HTMLElement | undefined;
 let runningBatch = false;
@@ -20,7 +21,7 @@ function remember(event: DelegateEvent): void {
 }
 
 function isChecked(file: HTMLElement): boolean {
-	return file.querySelector('input.js-reviewed-checkbox')!.checked;
+	return $('input.js-reviewed-checkbox', file).checked;
 }
 
 // A single click is somehow causing two separate trusted `click` events, so it needs to be debounced
@@ -31,15 +32,21 @@ const batchToggle = debounceFn((event: DelegateEvent<MouseEvent, HTMLFormElement
 
 	event.stopImmediatePropagation();
 
-	const files = select.all('.js-file');
+	const files = $$('.js-file');
 	const thisFile = event.delegateTarget.closest('.js-file')!;
 	const isThisBeingFileChecked = !isChecked(thisFile); // Flip it because the value hasn't changed yet
 
 	runningBatch = true;
 	const selectedFiles = getItemsBetween(files, previousFile, thisFile);
 	for (const file of selectedFiles) {
-		if (file !== thisFile && isChecked(file) !== isThisBeingFileChecked) {
-			select('.js-reviewed-checkbox', file)!.click();
+		if (
+			file !== thisFile
+			// `checkVisibility` excludes filtered-out files
+			// https://github.com/refined-github/refined-github/issues/7819
+			&& file.checkVisibility()
+			&& isChecked(file) !== isThisBeingFileChecked
+		) {
+			$('.js-reviewed-checkbox', file).click();
 		}
 	}
 
@@ -51,7 +58,9 @@ const batchToggle = debounceFn((event: DelegateEvent<MouseEvent, HTMLFormElement
 
 function markAsViewedSelector(target: HTMLElement): string {
 	const checked = isChecked(target) ? ':not([checked])' : '[checked]';
-	return '.js-reviewed-checkbox' + checked;
+	// The `hidden` attribute excludes filtered-out files
+	// https://github.com/refined-github/refined-github/issues/7819
+	return '.file:not([hidden]) .js-reviewed-checkbox' + checked;
 }
 
 const markAsViewed = clickAll(markAsViewedSelector);
@@ -81,10 +90,10 @@ function avoidSelectionOnShiftClick(event: MouseEvent): void {
 }
 
 function init(signal: AbortSignal): void {
-	delegate(document, '.js-reviewed-toggle', 'click', onAltClick, {signal});
-	delegate(document, '.js-reviewed-toggle', 'click', batchToggle, {signal});
-	delegate(document, '.js-reviewed-toggle', 'mousedown', avoidSelectionOnShiftClick, {signal});
-	delegate(document, '.js-toggle-user-reviewed-file-form', 'submit', remember, {signal});
+	delegate('.js-reviewed-toggle', 'click', onAltClick, {signal});
+	delegate('.js-reviewed-toggle', 'click', batchToggle, {signal});
+	delegate('.js-reviewed-toggle', 'mousedown', avoidSelectionOnShiftClick, {signal});
+	delegate('.js-toggle-user-reviewed-file-form', 'submit', remember, {signal});
 	onAbort(signal, () => {
 		previousFile = undefined;
 	});

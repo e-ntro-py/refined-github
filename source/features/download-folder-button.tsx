@@ -1,32 +1,44 @@
-import './download-folder-button.css';
-
 import React from 'dom-chef';
-import {DownloadIcon} from '@primer/octicons-react';
+import {$, $optional} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
+import DownloadIcon from 'octicons-plain-react/Download';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
+import replaceElementTypeInPlace from '../helpers/recreate-element.js';
 
-function add(folderDropdown: HTMLElement): void {
+function add(menu: HTMLUListElement): void {
 	const downloadUrl = new URL('https://download-directory.github.io/');
 	downloadUrl.searchParams.set('url', location.href);
 
-	folderDropdown.before(
-		<a
-			className="rgh-download-folder-button btn tooltipped tooltipped-nw"
-			aria-label="Download directory"
-			href={downloadUrl.href}
-		>
-			<DownloadIcon/>
-		</a>,
-	);
+	const item = menu.firstElementChild!.cloneNode(true);
+	item.role = 'none';
+	item.removeAttribute('tabindex');
+	item.removeAttribute('id');
+	item.removeAttribute('aria-keyshortcuts');
+	item.removeAttribute('aria-labelledby');
+
+	const link = item.firstElementChild instanceof HTMLAnchorElement
+		? item.firstElementChild
+		// Not a link on permalinks and archived repos
+		: replaceElementTypeInPlace(item.firstElementChild!, 'a');
+	link.href = downloadUrl.href;
+	link.classList.add('no-underline', 'fgColor-inherit');
+	link.setAttribute('aria-keyshortcuts', 'c');
+
+	// Missing on permalinks and archived repos
+	$optional('svg', link)?.replaceWith(<DownloadIcon />);
+
+	// Only on permalinks and archived repos
+	$optional('[id$="--trailing-visual"]', link)?.remove();
+
+	$('[id$="--label"]', link).textContent = 'Download directory';
+
+	menu!.prepend(item);
 }
 
 function init(signal: AbortSignal): void {
-	observe([
-		'[title="More options"]',
-		'[aria-label="Add file"] + details', // TODO: Drop in mid 2023. Old file view #6154
-	], add, {signal});
+	observe('ul[role="menu"]:has([aria-keyshortcuts="c"])', add, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -35,6 +47,7 @@ void features.add(import.meta.url, {
 	],
 	exclude: [
 		pageDetect.isRepoRoot, // Already has an native download ZIP button
+		pageDetect.isEnterprise,
 	],
 	init,
 });

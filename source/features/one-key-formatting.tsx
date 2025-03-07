@@ -1,9 +1,9 @@
 import * as pageDetect from 'github-url-detection';
-import * as textFieldEdit from 'text-field-edit';
-import delegate, {DelegateEvent} from 'delegate-it';
+import {wrapFieldSelection} from 'text-field-edit';
+import delegate, {type DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
-import {onCommentFieldKeydown, onConversationTitleFieldKeydown, onCommitTitleFieldKeydown} from '../github-events/on-field-keydown';
+import features from '../feature-manager.js';
+import {onCommentFieldKeydown, onConversationTitleFieldKeydown, onCommitTitleFieldKeydown} from '../github-events/on-field-keydown.js';
 
 const formattingCharacters = ['`', '\'', '"', '[', '(', '{', '*', '_', '~', '“', '‘'];
 const matchingCharacters = ['`', '\'', '"', ']', ')', '}', '*', '_', '~', '”', '’'];
@@ -32,14 +32,19 @@ function eventHandler(event: DelegateEvent<KeyboardEvent, HTMLTextAreaElement | 
 	event.preventDefault();
 
 	const matchingEndChar = matchingCharacters[formattingCharacters.indexOf(formattingChar)];
-	textFieldEdit.wrapSelection(field, formattingChar, matchingEndChar);
+	wrapFieldSelection(field, formattingChar, matchingEndChar);
 }
 
 function init(signal: AbortSignal): void {
 	onCommentFieldKeydown(eventHandler, signal);
 	onConversationTitleFieldKeydown(eventHandler, signal);
 	onCommitTitleFieldKeydown(eventHandler, signal);
-	delegate(document, 'input[name="commit_title"], input[name="gist[description]"], #saved-reply-title-field', 'keydown', eventHandler, {signal});
+	delegate([
+		'input[name="commit_title"]',
+		'input[name="gist[description]"]',
+		'#saved-reply-title-field',
+		'#commit-message-input',
+	], 'keydown', eventHandler, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -52,3 +57,14 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+- Any comment box and issue/PR title: https://github.com/refined-github/sandbox/issues/3
+- Gist title: https://gist.github.com
+- Commit title when editing files: https://github.com/refined-github/sandbox/edit/default-a/editable
+- Commit title when deleting files: https://github.com/refined-github/sandbox/delete/default-a/editable
+
+*/

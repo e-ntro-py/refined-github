@@ -1,7 +1,8 @@
+import {$optional} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import {isEditable} from '../helpers/dom-utils';
+import features from '../feature-manager.js';
+import {isEditable} from '../helpers/dom-utils.js';
 
 function isLineSelected(): boolean {
 	// Example hashes:
@@ -13,7 +14,23 @@ function isLineSelected(): boolean {
 
 function listener({key, target}: KeyboardEvent): void {
 	if (key === 'Escape' && isLineSelected() && !isEditable(target)) {
-		location.hash = '#no-line'; // Update UI, without `scroll-to-top` behavior
+		const selectedLineNumber = $optional('.react-line-number.highlighted-line');
+
+		if (selectedLineNumber) {
+			// Save and remove line number
+			const {lineNumber} = selectedLineNumber.dataset;
+			selectedLineNumber.dataset.lineNumber = '';
+			// Trigger click to deselect
+			selectedLineNumber.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+			// Restore line number
+			selectedLineNumber.dataset.lineNumber = lineNumber;
+			// Un-focus code block
+			(document.activeElement as HTMLElement).blur();
+		} else {
+			// TODO: Review in December 2025 if old UI is gone. Currently only applies to PRs
+			location.hash = '#no-line'; // Update UI, without `scroll-to-top` behavior
+		}
+
 		history.replaceState(undefined, document.title, location.pathname); // Drop remaining # from url
 	}
 }
@@ -28,3 +45,13 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+1. Visit https://github.com/refined-github/refined-github/blob/132272786fdc058193e089d8c06f2a158844e101/source/features/esc-to-deselect-line.tsx#L11
+2. Press Esc
+3. See selected line become deselected
+
+*/

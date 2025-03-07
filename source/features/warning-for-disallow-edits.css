@@ -1,4 +1,16 @@
 /* Hide warning when PR is closed */
-[data-pull-is-open='false'] ~ #discussion_bucket .rgh-warning-for-disallow-edits {
+[data-pull-is-open='false']
+	~ #discussion_bucket
+	.rgh-warning-for-disallow-edits {
+	display: none;
+}
+
+.discussion-sidebar-item:has(input[name='collab_privs']:not(:checked))
+	+ .rgh-warning-for-disallow-edits {
+	display: block;
+}
+
+.discussion-sidebar-item:has(input[name='collab_privs']:checked)
+	+ .rgh-warning-for-disallow-edits {
 	display: none;
 }

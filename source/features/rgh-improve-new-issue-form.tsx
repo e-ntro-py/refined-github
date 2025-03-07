@@ -1,61 +1,100 @@
 import React from 'dom-chef';
-import select from 'select-dom';
+import {$} from 'select-dom/strict.js';
+import delegate, {type DelegateEvent} from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import openOptions from '../helpers/open-options';
-import clearCacheHandler from '../helpers/clear-cache-handler';
-import {expectToken, expectTokenScope} from '../github-helpers/api';
-import {isRefinedGitHubRepo} from '../github-helpers';
+import features from '../feature-manager.js';
+import {OptionsLink} from '../helpers/open-options.js';
+import clearCacheHandler from '../helpers/clear-cache-handler.js';
+import {baseApiFetch} from '../github-helpers/github-token.js';
+import {getToken} from '../options-storage.js';
+import {isRefinedGitHubRepo} from '../github-helpers/index.js';
+
+const isSetTheTokenSelector = 'input[name^="issue_form[token]"]';
+const liesGif = 'https://github.com/user-attachments/assets/f417264f-f230-4156-b020-16e4390562bd';
 
 function addNotice(adjective: JSX.Element | string): void {
-	select('#issue_body_template_name')!.before(
-		<div className="flash flash-warn m-2">
-			Your Personal Access Token is {adjective}. Some Refined GitHub features will not work without it.
-			You can update it <button className="btn-link" type="button" onClick={openOptions as unknown as React.MouseEventHandler}>in the options</button>.
+	$('#issue_body_template_name').before(
+		<div className="flash flash-error h3 my-9" style={{animation: 'pulse-in 0.3s 2'}}>
+			<p>
+				Your token is {adjective}. Many Refined GitHub features don't work without it.
+				You can update it <OptionsLink className="btn-link">in the options</OptionsLink>.
+			</p>
+			<p>Before creating this issue, add a valid token and confirm the problem still occurs.</p>
 		</div>,
 	);
 }
 
 async function checkToken(): Promise<void> {
-	try {
-		await expectToken();
-	} catch {
+	const token = await getToken();
+	if (!token) {
 		addNotice('missing');
 		return;
 	}
 
 	try {
-		await expectTokenScope('repo');
-	} catch {
+		await baseApiFetch({apiBase: 'https://api.github.com/', path: 'user', token});
+	} catch (error) {
+		if (!navigator.onLine || (error as any)?.message === 'Failed to fetch') {
+			return;
+		}
+
 		addNotice('invalid or expired');
+		return;
 	}
+
+	// Thank you for following the instructions. I'll save you a click.
+	$(isSetTheTokenSelector).checked = true;
 }
 
 async function setVersion(): Promise<void> {
-	const {version} = browser.runtime.getManifest();
-	select('input#issue_form_version')!.value = version;
+	const {version} = chrome.runtime.getManifest();
+	// Mark the submission as not having a token set up because people have a tendency to go through forms and read absolutely nothing. This makes it easier to spot liars.
+	const field = $('input#issue_form_version');
+	field.value = version;
+	if (!await getToken()) {
+		field.value = '(' + version + ')';
+		field.disabled = true;
+	}
 }
 
 async function linkifyCacheRefresh(): Promise<void> {
-	select('[href="#clear-cache"]')!.replaceWith(
+	$('[href="#clear-cache"]').replaceWith(
 		<button
 			className="btn"
 			type="button"
-			onClick={clearCacheHandler as unknown as React.MouseEventHandler}
+			onClick={clearCacheHandler}
 		>
 			Clear cache
 		</button>,
 	);
 }
 
-async function init(): Promise<void> {
-	// Async functions so they're independent
-	await Promise.all([
-		linkifyCacheRefresh(),
-		checkToken(),
-		setVersion(),
-	]);
+function Lies(): JSX.Element {
+	return (
+		<a href="https://www.youtube.com/watch?v=YWdD206eSv0">
+			<img src={liesGif} alt="Just go on the internet and tell lies?" className="d-inline-block" />
+		</a>
+	);
+}
+
+async function lieDetector({delegateTarget}: DelegateEvent<MouseEvent, HTMLInputElement>): Promise<void> {
+	if (delegateTarget.checked) {
+		delegateTarget.closest('fieldset')!.append(<Lies />);
+	}
+}
+
+async function validateTokenCheckbox(): Promise<void> {
+	if (await getToken()) {
+		return;
+	}
+
+	// eslint-disable-next-line new-cap -- Preload image
+	Lies();
+
+	delegate(isSetTheTokenSelector, 'click', lieDetector, {
+		once: true,
+	});
 }
 
 void features.add(import.meta.url, {
@@ -66,5 +105,18 @@ void features.add(import.meta.url, {
 	],
 	awaitDomReady: true, // Small page
 	deduplicate: 'has-rgh-inner',
-	init,
+	init: [
+		linkifyCacheRefresh,
+		checkToken,
+		validateTokenCheckbox,
+		setVersion,
+	],
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/issues/new?assignees=&labels=bug&projects=&template=1_bug_report.yml
+
+*/

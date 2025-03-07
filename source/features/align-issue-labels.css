@@ -1,41 +1,36 @@
-/* Move labels in the Issue/PR list below the title */
-.rgh-align-issue-labels .js-issue-row .min-width-0 {
-	display: flex;
-	flex-wrap: wrap;
+html:not([rgh-OFF-align-issue-labels]) .js-issue-row {
+	/* Move labels in the Issue/PR list below the title */
+	.min-width-0 {
+		display: flex;
+		flex-wrap: wrap;
+	}
+
+	/* Labels */
+	.min-width-0 > .lh-default {
+		order: 1;
+	}
+
+	.min-width-0 .text-small {
+		flex-basis: 100%; /* #4949 */
+	}
+
+	/* Build status */
+	.commit-build-statuses {
+		margin-left: 4px;
+	}
+
+	/* Issue details line */
+	.mt-1.text-small.color-fg-muted {
+		flex-basis: 100%;
+	}
+
+	/* Title */
+	.h4 {
+		max-width: 100%; /* #1518 */
+	}
+
+	.IssueLabel {
+		margin-top: 4px;
+		font-size: 11px !important;
+	}
 }
-
-.rgh-align-issue-labels .js-issue-row .min-width-0 > .lh-default { /* Labels */
-	order: 1;
-}
-
-.rgh-align-issue-labels .js-issue-row .min-width-0 .text-small {
-	flex-basis: 100%; /* #4949 */
-}
-
-.rgh-align-issue-labels .js-issue-row .d-inline-block.mr-1 { /* Build status */
-	margin-left: 4px;
-}
-
-.rgh-align-issue-labels .js-issue-row .mt-1.text-small.color-fg-muted { /* Issue details line */
-	flex-basis: 100%;
-}
-
-.rgh-align-issue-labels .js-issue-row .h4 { /* Title */
-	max-width: 100%; /* #1518 */
-}
-
-.rgh-align-issue-labels .js-issue-row .IssueLabel {
-	margin-top: 4px;
-	font-size: 11px !important;
-}
-
-/*
-
-# Test URLs
-
-https://github.com/pulls
-https://github.com/bmish/eslint-doc-generator/pulls
-https://github.com/bmish/eslint-doc-generator/issues
-https://github.com/bmish/eslint-doc-generator/milestone/1
-
-*/

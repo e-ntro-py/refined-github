@@ -1,28 +1,43 @@
-/* eslint-disable @typescript-eslint/consistent-type-definitions -- Declaration merging necessary */
-/* eslint-disable @typescript-eslint/consistent-indexed-object-style */
+/* eslint-disable no-var -- TypeScript weirdness */
 
+/// <reference types="@types/dom-navigation" />
+
+declare var content: {
+	fetch: GlobalFetch;
+} | undefined;
+
+// eslint-disable-next-line unicorn/prefer-global-this -- Types not available there
+declare var navigation: typeof window.navigation;
+
+type GlobalFetch = typeof fetch;
+type Arrayable<X> = X | X[];
 type AnyObject = Record<string, any>;
-type DeinitHandle = {disconnect: VoidFunction} | {clear: VoidFunction} | {destroy: VoidFunction} | {abort: VoidFunction} | VoidFunction;
-type Deinit = DeinitHandle | DeinitHandle[];
+type Deinit = {disconnect: VoidFunction} | {clear: VoidFunction} | {destroy: VoidFunction} | {abort: VoidFunction} | VoidFunction;
 
 type FeatureID = string & {feature: true};
 interface FeatureMeta {
 	id: FeatureID;
 	description: string;
-	screenshot?: string;
+	screenshot: string | null; // eslint-disable-line ts/no-restricted-types -- We use `null` in the JSON file
+	css?: true;
 }
 
-interface Window {
-	content: GlobalFetch;
+// These types are unnecessarily loose
+// https://dom.spec.whatwg.org/#dom-node-textcontent
+interface ChildNode {
+	textContent: string;
 }
-
-declare module 'markdown-wasm/dist/markdown.node.js';
+interface Text {
+	textContent: string;
+}
+interface Element {
+	textContent: string;
+}
 
 declare module 'size-plugin';
 
-declare module '*.md' { // It should be just for readme.md, but 🤷‍♂️
-	export const importedFeatures: FeatureID[];
-	export const featuresMeta: FeatureMeta[];
+declare module '*.gql' {
+	export = string;
 }
 
 // Custom UI events specific to RGH
@@ -32,10 +47,11 @@ interface GlobalEventHandlersEventMap {
 	'page:loaded': CustomEvent;
 	'turbo:visit': CustomEvent;
 	'session:resume': CustomEvent;
+	// No input:InputEvent match
+	// https://github.com/microsoft/TypeScript-DOM-lib-generator/issues/1174#issuecomment-933042088
 }
 
 declare namespace JSX {
-	/* eslint-disable @typescript-eslint/no-redundant-type-constituents -- https://github.com/refined-github/refined-github/pull/5654#discussion_r878891540 */
 	interface IntrinsicElements {
 		'clipboard-copy': IntrinsicElements.button & {for?: string};
 		'details-dialog': IntrinsicElements.div & {tabindex: string};
@@ -48,8 +64,8 @@ declare namespace JSX {
 		'tab-container': IntrinsicElements.div;
 		'batch-deferred-content': IntrinsicElements.div;
 		'time-ago': IntrinsicElements.div & {datetime: string; format?: string};
+		'anchored-position': IntrinsicElements.div;
 	}
-	/* eslint-enable @typescript-eslint/no-redundant-type-constituents */
 
 	type BaseElement = IntrinsicElements['div'];
 	interface IntrinsicAttributes extends BaseElement {
@@ -68,13 +84,11 @@ interface HTMLFormControlsCollection {
 	[key: string]: HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement | HTMLSelectElement;
 }
 
-declare module 'react' {
-	const FC = (): JSX.Element => JSX.Element;
-	const React = {FC};
-	export default React;
-}
-
 // Make `element.cloneNode()` preserve its type instead of returning Node
 interface Node extends EventTarget {
 	cloneNode(deep?: boolean): this;
+}
+
+interface SignalAsOptions {
+	signal?: AbortSignal;
 }

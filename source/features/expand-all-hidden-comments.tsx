@@ -1,14 +1,13 @@
-import select from 'select-dom';
+import {$optional} from 'select-dom/strict.js';
 import oneEvent from 'one-event';
-import delegate, {DelegateEvent} from 'delegate-it';
+import delegate, {type DelegateEvent} from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import showToast from '../github-helpers/toast';
+import features from '../feature-manager.js';
+import showToast from '../github-helpers/toast.js';
+import {paginationButtonSelector} from '../github-helpers/selectors.js';
 
-const paginationButtonSelector = '.ajax-pagination-form button[type="submit"]';
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+// eslint-disable-next-line ts/explicit-function-return-type
 async function expandHidden(paginationButton: HTMLButtonElement | undefined) {
 	let wrapper: Element = paginationButton!.form!.parentElement!;
 	const isExpandingMainThread = wrapper.id === 'js-progressive-timeline-item-container';
@@ -21,7 +20,7 @@ async function expandHidden(paginationButton: HTMLButtonElement | undefined) {
 			wrapper = wrapper.lastElementChild!;
 		}
 
-		paginationButton = select(`:scope > ${paginationButtonSelector}`, wrapper);
+		paginationButton = $optional(`:scope > ${paginationButtonSelector}`, wrapper);
 		paginationButton?.click();
 	}
 }
@@ -31,11 +30,14 @@ async function handleAltClick({altKey, delegateTarget}: DelegateEvent<MouseEvent
 		return;
 	}
 
-	await showToast(expandHidden(delegateTarget), {message: 'Expanding…', doneMessage: 'Expanded'});
+	await showToast(expandHidden(delegateTarget), {
+		message: 'Expanding…',
+		doneMessage: 'Expanded',
+	});
 }
 
 function init(signal: AbortSignal): void {
-	delegate(document, paginationButtonSelector, 'click', handleAltClick, {signal});
+	delegate(paginationButtonSelector, 'click', handleAltClick, {signal});
 }
 
 void features.add(import.meta.url, {

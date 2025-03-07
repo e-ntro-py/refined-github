@@ -1,95 +1,107 @@
 import './select-notifications.css';
+
 import React from 'dom-chef';
-import select from 'select-dom';
-import onetime from 'onetime';
+import {$} from 'select-dom/strict.js';
+import {$$, elementExists} from 'select-dom';
 import delegate from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
-import {
-	CheckCircleIcon,
-	CheckIcon,
-	DotFillIcon,
-	DotIcon,
-	GitMergeIcon,
-	GitPullRequestDraftIcon,
-	GitPullRequestIcon,
-	IssueOpenedIcon,
-	XCircleIcon,
-} from '@primer/octicons-react';
+import CheckCircleIcon from 'octicons-plain-react/CheckCircle';
+import CheckIcon from 'octicons-plain-react/Check';
+import DotFillIcon from 'octicons-plain-react/DotFill';
+import DotIcon from 'octicons-plain-react/Dot';
+import GitMergeIcon from 'octicons-plain-react/GitMerge';
+import GitPullRequestDraftIcon from 'octicons-plain-react/GitPullRequestDraft';
+import GitPullRequestIcon from 'octicons-plain-react/GitPullRequest';
+import IssueOpenedIcon from 'octicons-plain-react/IssueOpened';
+import SquirrelIcon from 'octicons-plain-react/Squirrel';
+import XCircleIcon from 'octicons-plain-react/XCircle';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
+import onetime from '../helpers/onetime.js';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
 
+const prIcons = ':is(.octicon-git-pull-request, .octicon-git-pull-request-closed, .octicon-git-pull-request-draft, .octicon-git-merge)';
+const issueIcons = ':is(.octicon-issue-opened, .octicon-issue-closed, .octicon-skip)';
 const filters = {
-	'Pull requests': ':is(.octicon-git-pull-request, .octicon-git-pull-request-closed, .octicon-git-pull-request-draft, .octicon-git-merge)',
-	Issues: ':is(.octicon-issue-opened, .octicon-issue-closed)',
-	Open: ':is(.octicon-issue-opened, .octicon-git-pull-request)',
-	Closed: ':is(.octicon-issue-closed, .octicon-git-pull-request-closed)',
-	Draft: '.octicon-git-pull-request-draft',
-	Merged: '.octicon-git-merge',
-	Read: '.notification-read',
-	Unread: '.notification-unread',
-};
+	'Pull requests': prIcons,
+	'Issues': issueIcons,
+	// This selector is a bit too loose, so it needs to be scoped to the smallest possible element and exclude the bookmark icon
+	'Others': `.notification-list-item-link .octicon:not(${prIcons}, ${issueIcons}, .octicon-bookmark)`,
+	'Open': ':is(.octicon-issue-opened, .octicon-git-pull-request)',
+	'Closed': ':is(.octicon-issue-closed, .octicon-git-pull-request-closed, .octicon-skip)',
+	'Draft': '.octicon-git-pull-request-draft',
+	'Merged': '.octicon-git-merge',
+	'Read': '.notification-read',
+	'Unread': '.notification-unread',
+} as const;
 
 type Filter = keyof typeof filters;
 type Category = 'Type' | 'Status' | 'Read';
 
 function resetFilters({target}: React.SyntheticEvent): void {
-	select('form#rgh-select-notifications-form')!.reset();
-	for (const label of select.all('label', target as Element)) {
+	$('form#rgh-select-notifications-form').reset();
+	for (const label of $$('label', target as Element)) {
 		label.setAttribute('aria-checked', 'false');
 	}
 }
 
-function getFiltersSelector(formData: FormData, category: Category): string {
-	return formData.getAll(category).map(value => filters[value as Filter]).join(',');
+function getFiltersSelector(formData: FormData, category: Category): string[] {
+	return formData.getAll(category).map(value => filters[value as Filter]);
 }
 
 function handleSelection({target}: Event): void {
-	const selectAllCheckbox = select('input[type="checkbox"].js-notifications-mark-all-prompt')!;
+	const selectAllCheckbox = $('input[type="checkbox"].js-notifications-mark-all-prompt');
 	// Reset the "Select all" checkbox
 	if (selectAllCheckbox.checked) {
 		selectAllCheckbox.click();
 	}
 
-	if (select.exists(':checked', target as Element)) {
-		const formData = new FormData(select('form#rgh-select-notifications-form'));
+	let excluded: HTMLElement[] = [];
+	const toggleSelectability = (elements: HTMLElement[], state: boolean): void => {
+		for (const element of elements) {
+			element.toggleAttribute('data-check-all-item', state);
+		}
+	};
+
+	if (elementExists(':checked', target as Element)) {
+		// @ts-expect-error TS bug
+		const formData = new FormData($('form#rgh-select-notifications-form'));
 		const types = getFiltersSelector(formData, 'Type');
 		const statuses = getFiltersSelector(formData, 'Status');
 		const readStatus = getFiltersSelector(formData, 'Read');
 
-		for (const notification of select.all('.notifications-list-item')) {
-			if (
-				(types && !select.exists(types, notification))
-				|| (statuses && !select.exists(statuses, notification))
-				|| (readStatus && !notification.matches(readStatus))
-			) {
-				// Make excluded notifications unselectable
-				select('.js-notification-bulk-action-check-item', notification)!.removeAttribute('data-check-all-item');
-			}
-		}
+		excluded = $$('.notifications-list-item')
+			.filter(notification =>
+				(types.length > 0 && !elementExists(types, notification))
+				|| (statuses.length > 0 && !elementExists(statuses, notification))
+				|| (readStatus.length > 0 && !notification.matches(readStatus)),
+			)
+			.map(notification => $('.js-notification-bulk-action-check-item', notification));
+
+		// Make excluded notifications unselectable
+		toggleSelectability(excluded, false);
 
 		// If at least one notification is selectable, trigger the "Select all" checkbox
-		if (select.exists('.js-notification-bulk-action-check-item[data-check-all-item]')) {
+		if (elementExists('.js-notification-bulk-action-check-item[data-check-all-item]')) {
 			selectAllCheckbox.click();
 		}
-	}
 
-	// Make all notifications selectable again
-	for (const disabledNotificationCheckbox of select.all('.js-notification-bulk-action-check-item:not([data-check-all-item])')) {
-		disabledNotificationCheckbox.setAttribute('data-check-all-item', '');
+		// Make all notifications selectable again
+		toggleSelectability(excluded, true);
 	}
 }
 
 function createDropdownList(category: Category, filters: Filter[]): JSX.Element {
 	const icons: {[Key in Filter]: JSX.Element} = {
-		'Pull requests': <GitPullRequestIcon className="color-fg-muted"/>,
-		Issues: <IssueOpenedIcon className="color-fg-muted"/>,
-		Open: <CheckCircleIcon className="color-fg-success"/>,
-		Closed: <XCircleIcon className="color-fg-danger"/>,
-		Draft: <GitPullRequestDraftIcon className="color-fg-subtle"/>,
-		Merged: <GitMergeIcon className="color-fg-done"/>,
-		Read: <DotIcon className="color-fg-accent"/>,
-		Unread: <DotFillIcon className="color-fg-accent"/>,
+		'Pull requests': <GitPullRequestIcon className="color-fg-muted" />,
+		'Issues': <IssueOpenedIcon className="color-fg-muted" />,
+		'Open': <CheckCircleIcon className="color-fg-success" />,
+		'Others': <SquirrelIcon className="color-fg-muted" />,
+		'Closed': <XCircleIcon className="color-fg-danger" />,
+		'Draft': <GitPullRequestDraftIcon className="color-fg-subtle" />,
+		'Merged': <GitMergeIcon className="color-fg-done" />,
+		'Read': <DotIcon className="color-fg-accent" />,
+		'Unread': <DotFillIcon className="color-fg-accent" />,
 	};
 
 	return (
@@ -104,7 +116,7 @@ function createDropdownList(category: Category, filters: Filter[]): JSX.Element 
 					aria-checked="false"
 					tabIndex={0}
 				>
-					<CheckIcon className="octicon octicon-check SelectMenu-icon SelectMenu-icon--check mr-2" aria-hidden="true"/>
+					<CheckIcon className="octicon octicon-check SelectMenu-icon SelectMenu-icon--check mr-2" aria-hidden="true" />
 					<div className="SelectMenu-item-text">
 						<input
 							hidden
@@ -123,16 +135,18 @@ function createDropdownList(category: Category, filters: Filter[]): JSX.Element 
 
 const createDropdown = onetime(() => (
 	<details
-		className="details-reset details-overlay position-relative rgh-select-notifications mx-2"
+		className="details-reset details-overlay position-relative rgh-select-notifications mr-2"
 		onToggle={resetFilters}
 	>
 		<summary
-			className="h6" // Match "Select all" style
-			data-hotkey="S"
+			className="h6" // `h6` matches "Select all" style
+			data-hotkey="Shift+S"
 			aria-haspopup="menu"
+			// Don't use tooltipped, it remains visible when the dropdown is open
+			title="Hotkey: Shift+S"
 			role="button"
 		>
-			Select by <span className="dropdown-caret ml-1"/>
+			Select by <span className="dropdown-caret ml-1" />
 		</summary>
 		<details-menu
 			className="SelectMenu left-0"
@@ -142,7 +156,7 @@ const createDropdown = onetime(() => (
 		>
 			<div className="SelectMenu-modal">
 				<form id="rgh-select-notifications-form">
-					{createDropdownList('Type', ['Pull requests', 'Issues'])}
+					{createDropdownList('Type', ['Pull requests', 'Issues', 'Others'])}
 					{createDropdownList('Status', ['Open', 'Closed', 'Merged', 'Draft'])}
 					{createDropdownList('Read', ['Read', 'Unread'])}
 				</form>
@@ -152,29 +166,41 @@ const createDropdown = onetime(() => (
 ));
 
 function closeDropdown(): void {
-	select('.rgh-select-notifications')?.removeAttribute('open');
+	$('.rgh-select-notifications').removeAttribute('open');
 }
 
-function addDropdown(markAllPrompt: Element): void {
-	markAllPrompt.closest('label')!.after(createDropdown());
+function addDropdown(selectAllCheckbox: HTMLInputElement): void {
+	selectAllCheckbox.style.verticalAlign = '-0.2em'; // #7852
+	selectAllCheckbox.closest('label')!.after(
+		// `h6` matches "Select all" style
+		<span className="mx-2 h6">·</span>,
+		createDropdown(),
+	);
 }
 
 function init(signal: AbortSignal): void {
-	observe('.js-notifications-mark-all-prompt', addDropdown, {signal});
+	observe('input.js-notifications-mark-all-prompt', addDropdown, {signal});
 
 	// Close the dropdown when one of the toolbar buttons is clicked
-	delegate(document, '.js-notifications-mark-selected-actions > *, .rgh-open-selected-button', 'click', closeDropdown, {signal});
+	delegate(['.js-notifications-mark-selected-actions > *', '.rgh-open-selected-button'], 'click', closeDropdown, {signal});
 }
 
 void features.add(import.meta.url, {
 	shortcuts: {
-		S: 'Open the "Select by" dropdown',
+		'shift s': 'Open the "Select by" dropdown',
 	},
 	include: [
 		pageDetect.isNotifications,
 	],
-	exclude: [
-		pageDetect.isBlank, // Empty notification list
-	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/notifications (Grouped by date)
+https://github.com/notifications (Grouped by repo)
+https://github.com/notifications?query=reason%3Acomment (which is an unsaved filter)
+
+*/

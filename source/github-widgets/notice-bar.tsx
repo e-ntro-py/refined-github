@@ -1,5 +1,5 @@
 import React from 'dom-chef';
-import {XIcon} from '@primer/octicons-react';
+import XIcon from 'octicons-plain-react/X';
 import elementReady from 'element-ready';
 
 type Options = {
@@ -14,7 +14,7 @@ export default async function addNotice(
 		type = 'notice',
 		action = (
 			<button className="flash-close js-flash-close" type="button" aria-label="Dismiss this message">
-				<XIcon/>
+				<XIcon />
 			</button>
 		),
 	}: Options = {},

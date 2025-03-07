@@ -1,25 +1,26 @@
 import React from 'dom-chef';
-import select from 'select-dom';
+import {$} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
+import {stringToBase64} from 'uint8array-extras';
 
-import features from '../feature-manager';
-import looseParseInt from '../helpers/loose-parse-int';
-import {assertNodeContent} from '../helpers/dom-utils';
-import observe from '../helpers/selector-observer';
+import features from '../feature-manager.js';
+import looseParseInt from '../helpers/loose-parse-int.js';
+import {assertNodeContent} from '../helpers/dom-utils.js';
+import observe from '../helpers/selector-observer.js';
 
 const itemsPerNotificationsPage = 25;
 
 function linkify(nextButton: HTMLAnchorElement): void {
-	const lastNotificationPageNode = select('.js-notifications-list-paginator-counts')!.lastChild!;
-	assertNodeContent(lastNotificationPageNode, /^of \d+$/);
-	const lastNotificationPageNumber = looseParseInt(lastNotificationPageNode);
-	const lastCursor = Math.floor(lastNotificationPageNumber / itemsPerNotificationsPage) * itemsPerNotificationsPage;
+	const totalNotificationsNode = $('.js-notifications-list-paginator-counts').lastChild!;
+	assertNodeContent(totalNotificationsNode, /^of \d+$/);
+	const totalNotificationsNumber = looseParseInt(totalNotificationsNode);
+	const lastCursor = Math.floor((totalNotificationsNumber - 1) / itemsPerNotificationsPage) * itemsPerNotificationsPage;
 	const nextButtonSearch = new URLSearchParams(nextButton.search);
-	nextButtonSearch.set('after', btoa(`cursor:${lastCursor}`));
-	lastNotificationPageNode.replaceWith(
+	nextButtonSearch.set('after', stringToBase64(`cursor:${lastCursor}`));
+	totalNotificationsNode.replaceWith(
 		' of ',
 		<a href={'?' + String(nextButtonSearch)}>
-			{lastNotificationPageNumber}
+			{totalNotificationsNumber}
 		</a>,
 	);
 }
@@ -35,3 +36,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/notifications
+
+*/

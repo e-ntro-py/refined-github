@@ -1,20 +1,20 @@
 import React from 'dom-chef';
 import * as pageDetect from 'github-url-detection';
 
-import {wrap} from '../helpers/dom-utils';
-import features from '../feature-manager';
-import featureLink from '../helpers/feature-link';
-import {getNewFeatureName} from '../options-storage';
-import {isAnyRefinedGitHubRepo} from '../github-helpers';
-import observe from '../helpers/selector-observer';
+import {wrap} from '../helpers/dom-utils.js';
+import features from '../feature-manager.js';
+import {getFeatureUrl} from '../helpers/rgh-links.js';
+import {getNewFeatureName} from '../feature-data.js';
+import {isAnyRefinedGitHubRepo} from '../github-helpers/index.js';
+import observe from '../helpers/selector-observer.js';
 
 function linkifyFeature(possibleFeature: HTMLElement): void {
-	const id = getNewFeatureName(possibleFeature.textContent!);
+	const id = getNewFeatureName(possibleFeature.textContent);
 	if (!id) {
 		return;
 	}
 
-	const href = featureLink(id);
+	const href = getFeatureUrl(id);
 
 	const possibleLink = possibleFeature.firstElementChild ?? possibleFeature;
 	if (possibleLink instanceof HTMLAnchorElement) {
@@ -39,9 +39,10 @@ function linkifyFeature(possibleFeature: HTMLElement): void {
 
 function init(signal: AbortSignal): void {
 	observe([
-		'.js-issue-title code', // `isPR`, `isIssue`
-		'.js-comment-body code', // `hasComments`
-		'.markdown-body code', // `isReleasesOrTags`
+		'.js-issue-title code', // `isPR`, Old view `isIssue`
+		'[data-testid="issue-title"] code', // `isIssue`
+		'.js-comment-body code', // Old view `hasComments`
+		'.markdown-body code', // `hasComments`, `isReleasesOrTags`
 		'.markdown-title:not(li) code', // `isSingleCommit`, `isRepoTree`, not on the issue autocomplete
 		'code .markdown-title', // `isCommitList`, `isRepoTree`
 	], linkifyFeature, {signal});
@@ -54,6 +55,7 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasComments,
 		pageDetect.isReleasesOrTags,
+		pageDetect.isSingleReleaseOrTag,
 		pageDetect.isCommitList,
 		pageDetect.isSingleCommit,
 		pageDetect.isRepoWiki,
@@ -62,3 +64,14 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs
+
+- isReleasesOrTags: https://github.com/refined-github/refined-github/releases
+- isSingleCommit: https://github.com/refined-github/refined-github/releases/tag/23.7.25
+- isIssue: https://github.com/refined-github/refined-github/issues
+- isPR: https://github.com/refined-github/refined-github/pull
+
+*/

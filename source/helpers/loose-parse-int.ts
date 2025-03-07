@@ -1,11 +1,12 @@
-export default function looseParseInt(text: Node | string | undefined): number {
+// eslint-disable-next-line ts/no-restricted-types -- Simplify passing random nodes
+export default function looseParseInt(text: ChildNode | string | undefined | null): number {
 	if (!text) {
 		return 0;
 	}
 
 	if (typeof text !== 'string') {
-		text = text.textContent!;
+		text = text.textContent;
 	}
 
-	return Number(text.replace(/\D+/g, ''));
+	return Number(text.replaceAll(/\D+/g, ''));
 }

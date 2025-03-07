@@ -1,65 +1,59 @@
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
+import {CachedFunction} from 'webext-storage-cache';
 import elementReady from 'element-ready';
-import * as pageDetect from 'github-url-detection';
+import type {NameWithOwner} from 'github-url-detection';
 
-import * as api from './api';
-import {getRepo, getCurrentBranchFromFeed} from '.';
+import api from './api.js';
+import {extractCurrentBranchFromBranchPicker, getRepo} from './index.js';
+import {branchSelector} from './selectors.js';
+import GetDefaultBranch from './get-default-branch.gql';
 
-// This regex should match all of these combinations:
-// "This branch is even with master."
-// "This branch is 1 commit behind master."
-// "This branch is 1 commit ahead of master."
-// "This branch is 1 commit ahead, 27 commits behind master."
-const branchInfoRegex = /([^ ]+)\.$/;
+const isCurrentRepo = (nameWithOwner: NameWithOwner): boolean => Boolean(getRepo()?.nameWithOwner === nameWithOwner);
+
+// Do not make this function complicated. We're only optimizing for the repo root.
+async function fromDOM(): Promise<string | undefined> {
+	if (!['', 'commits'].includes(getRepo()!.path)) {
+		return;
+	}
+
+	// We're on the default branch, so we can extract it from the current page. This exclusively happens on the exact pages:
+	// /user/repo
+	// /user/repo/commits (without further path)
+	const element = await elementReady(branchSelector);
+
+	if (!element) {
+		return;
+	}
+
+	return extractCurrentBranchFromBranchPicker(element);
+}
+
+async function fromAPI(repository: NameWithOwner): Promise<string> {
+	const [owner, name] = repository.split('/');
+	const response = await api.v4(GetDefaultBranch, {
+		variables: {
+			owner,
+			name,
+		},
+	});
+
+	return response.repository.defaultBranchRef.name;
+}
 
 // DO NOT use optional arguments/defaults in "cached functions" because they can't be memoized effectively
 // https://github.com/sindresorhus/eslint-plugin-unicorn/issues/1864
-const _getDefaultBranch = cache.function('default-branch', async function (repository: pageDetect.RepositoryInfo): Promise<string> {
-	if (arguments.length === 0 || JSON.stringify(repository) === JSON.stringify(getRepo())) {
-		if (pageDetect.isRepoHome()) {
-			const branchSelector = await elementReady('[data-hotkey="w"]');
-			if (branchSelector) {
-				return branchSelector.title === 'Switch branches or tags'
-					? branchSelector.textContent!.trim()
-					: branchSelector.title;
-			}
+export const defaultBranchOfRepo = new CachedFunction('default-branch', {
+	async updater(repository: NameWithOwner): Promise<string> {
+		if (!repository) {
+			throw new Error('getDefaultBranch was called on a non-repository page');
 		}
 
-		const defaultBranch = getCurrentBranchFromFeed();
-		if (defaultBranch) {
-			return defaultBranch;
-		}
+		return (isCurrentRepo(repository) && await fromDOM()) || fromAPI(repository);
+	},
 
-		if (!pageDetect.isForkedRepo()) {
-			// We can find the name in the infobar, available in folder views
-			const branchInfo = select('.branch-infobar')?.textContent!.trim();
-			const defaultBranch = branchInfoRegex.exec(branchInfo!)?.[1];
-			if (defaultBranch) {
-				return defaultBranch;
-			}
-		}
-	}
-
-	const response = await api.v4(`
-		repository(owner: "${repository.owner}", name: "${repository.name}") {
-			defaultBranchRef {
-				name
-			}
-		}
-	`);
-
-	return response.repository.defaultBranchRef.name;
-}, {
 	maxAge: {hours: 1},
 	staleWhileRevalidate: {days: 20},
-	cacheKey: ([repository]) => repository.nameWithOwner,
 });
 
-export default async function getDefaultBranch(repository: pageDetect.RepositoryInfo | undefined = getRepo()): Promise<string> {
-	if (!repository) {
-		throw new Error('getDefaultBranch was called on a non-repository page');
-	}
-
-	return _getDefaultBranch(repository);
+export default async function getDefaultBranch(): Promise<string> {
+	return defaultBranchOfRepo.get(getRepo()!.nameWithOwner);
 }

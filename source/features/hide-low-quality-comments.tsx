@@ -1,28 +1,30 @@
 import './hide-low-quality-comments.css';
-import delay from 'delay';
-import React from 'dom-chef';
-import select from 'select-dom';
-import * as pageDetect from 'github-url-detection';
-import delegate, {DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
-import isLowQualityComment from '../helpers/is-low-quality-comment';
+import React from 'dom-chef';
+import {$, $optional} from 'select-dom/strict.js';
+import {$$, countElements, elementExists} from 'select-dom';
+import * as pageDetect from 'github-url-detection';
+import delegate, {type DelegateEvent} from 'delegate-it';
+
+import delay from '../helpers/delay.js';
+import features from '../feature-manager.js';
+import isLowQualityComment from '../helpers/is-low-quality-comment.js';
 
 export const singleParagraphCommentSelector = '.comment-body > p:only-child';
 
 async function unhide(event: DelegateEvent): Promise<void> {
-	for (const comment of select.all('.rgh-hidden-comment')) {
+	for (const comment of $$('.rgh-hidden-comment')) {
 		comment.hidden = false;
 	}
 
 	await delay(10); // "Similar comments" aren't expanded without this in Safari #3830
 
 	// Expand all "similar comments" boxes
-	for (const similarCommentsExpandButton of select.all('.rgh-hidden-comment > summary')) {
+	for (const similarCommentsExpandButton of $$('.rgh-hidden-comment > summary')) {
 		similarCommentsExpandButton.click();
 	}
 
-	select('.rgh-hidden-comment')!.scrollIntoView();
+	$('.rgh-hidden-comment').scrollIntoView();
 	event.delegateTarget.parentElement!.remove();
 }
 
@@ -31,46 +33,42 @@ function hideComment(comment: HTMLElement): void {
 	comment.classList.add('rgh-hidden-comment');
 }
 
-function init(): void | false {
-	if (select.exists('.rgh-low-quality-comments-note')) {
-		return false;
-	}
-
-	for (const similarCommentsBox of select.all('.js-discussion .Details-element:not([data-body-version])')) {
+function init(): void {
+	for (const similarCommentsBox of $$('.js-discussion .Details-element:not([data-body-version])')) {
 		hideComment(similarCommentsBox);
 	}
 
-	const linkedComment = location.hash.startsWith('#issuecomment-') ? select(`${location.hash} ${singleParagraphCommentSelector}`) : undefined;
+	const linkedComment = location.hash.startsWith('#issuecomment-')
+		? $optional(`${location.hash} ${singleParagraphCommentSelector}`)
+		: undefined;
 
-	for (const commentText of select.all(singleParagraphCommentSelector)) {
-		// Exclude explicitely linked comments #5363
+	for (const commentText of $$(singleParagraphCommentSelector)) {
+		// Exclude explicitly linked comments #5363
 		if (commentText === linkedComment) {
 			continue;
 		}
 
-		if (!isLowQualityComment(commentText.textContent!)) {
+		if (!isLowQualityComment(commentText.textContent)) {
 			continue;
 		}
 
 		// Comments that contain useful images or links shouldn't be removed
 		// Images are wrapped in <a> tags on GitHub hence included in the selector
-		// TODO: use :has()
-		if (select.exists('a', commentText)) {
+		if (elementExists('a', commentText)) {
 			continue;
 		}
 
 		// Ensure that they're not by VIPs (owner, collaborators, etc)
-		// TODO: use :has()
 		const comment = commentText.closest('.js-timeline-item')!;
-		if (select.exists('.timeline-comment-label', comment)) {
+		if (elementExists('.Label', comment)) {
 			continue;
 		}
 
 		// If the person is having a conversation, then don't hide it
-		const author = select('.author', comment)!.getAttribute('href')!;
+		const author = $('.author', comment).getAttribute('href')!;
 		// If the first comment left by the author isn't a low quality comment
 		// (previously hidden or about to be hidden), then leave this one as well
-		const previousComment = select(`.js-timeline-item:not([hidden]) .unminimized-comment .author[href="${author}"]`);
+		const previousComment = $(`.js-timeline-item:not([hidden]) .unminimized-comment .author[href="${author}"]`);
 		if (previousComment?.closest('.js-timeline-item') !== comment) {
 			continue;
 		}
@@ -78,9 +76,9 @@ function init(): void | false {
 		hideComment(comment);
 	}
 
-	const lowQualityCount = select.all('.rgh-hidden-comment').length;
+	const lowQualityCount = countElements('.rgh-hidden-comment');
 	if (lowQualityCount > 0) {
-		select('.discussion-timeline-actions')!.prepend(
+		$('.discussion-timeline-actions').prepend(
 			<p className="rgh-low-quality-comments-note">
 				{`${lowQualityCount} unhelpful comment${lowQualityCount > 1 ? 's were' : ' was'} automatically hidden. `}
 				<button className="btn-link text-emphasized rgh-unhide-low-quality-comments" type="button">Show</button>
@@ -88,20 +86,25 @@ function init(): void | false {
 		);
 
 		// No need to add the signal here
-		delegate(document, '.rgh-unhide-low-quality-comments', 'click', unhide);
+		delegate('.rgh-unhide-low-quality-comments', 'click', unhide);
 	}
 }
 
-// This should not be made dynamic via observer, it's not worth updating the lowQuality count for fresh comments
+// This should NOT be made dynamic via observer, it's not worth updating the lowQuality count for fresh comments
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isIssue,
 	],
+	deduplicate: '.rgh-low-quality-comments-note',
 	awaitDomReady: true,
 	init,
 });
 
 /*
+
 ## Test URLs
-https://github.com/facebook/jest/issues/5311
+
+- 26 hidden comments: https://togithub.com/stephencookdev/speed-measure-webpack-plugin/issues/167#issue-849740710
+- Linked comment should not be collapsed: https://togithub.com/stephencookdev/speed-measure-webpack-plugin/issues/167#issuecomment-821212185
+
 */

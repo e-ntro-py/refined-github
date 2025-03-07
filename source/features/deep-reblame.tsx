@@ -1,45 +1,30 @@
 import './deep-reblame.css';
-import mem from 'mem';
-import React from 'dom-chef';
-import select from 'select-dom';
-import {VersionsIcon} from '@primer/octicons-react';
-import * as pageDetect from 'github-url-detection';
-import delegate, {DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import GitHubURL from '../github-helpers/github-url';
-import showToast from '../github-helpers/toast';
-import looseParseInt from '../helpers/loose-parse-int';
-import observe from '../helpers/selector-observer';
+import mem from 'memoize';
+import React from 'dom-chef';
+import {$$} from 'select-dom';
+import {$, $optional} from 'select-dom/strict.js';
+import VersionsIcon from 'octicons-plain-react/Versions';
+import * as pageDetect from 'github-url-detection';
+import delegate, {type DelegateEvent} from 'delegate-it';
+
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import GitHubFileURL from '../github-helpers/github-file-url.js';
+import showToast from '../github-helpers/toast.js';
+import looseParseInt from '../helpers/loose-parse-int.js';
+import observe from '../helpers/selector-observer.js';
+import GetPullRequestBlameCommit from './deep-reblame.gql';
+import {multilineAriaLabel} from '../github-helpers/index.js';
+import {expectToken} from '../github-helpers/github-token.js';
 
 const getPullRequestBlameCommit = mem(async (commit: string, prNumbers: number[], currentFilename: string): Promise<string> => {
-	const {repository} = await api.v4(`
-		repository() {
-			file: object(expression: "${commit}:${currentFilename}") {
-				id
-			}
-			object(expression: "${commit}") {
-				... on Commit {
-					associatedPullRequests(last: 1) {
-						nodes {
-							number
-							mergeCommit {
-								oid
-							}
-							commits(last: 1) {
-								nodes {
-									commit {
-										oid
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	`);
+	const {repository} = await api.v4(GetPullRequestBlameCommit, {
+		variables: {
+			commit,
+			file: commit + ':' + currentFilename,
+		},
+	});
 
 	const associatedPR = repository.object.associatedPullRequests.nodes[0];
 
@@ -54,6 +39,10 @@ const getPullRequestBlameCommit = mem(async (commit: string, prNumbers: number[]
 	return associatedPR.commits.nodes[0].commit.oid;
 });
 
+function extractCommitFromHoverCardUrl(url: string): string {
+	return /[/]commit[/]([0-9a-f]{40})[/]/i.exec(url)![1];
+}
+
 async function redirectToBlameCommit(event: DelegateEvent<MouseEvent, HTMLAnchorElement | HTMLButtonElement>): Promise<void> {
 	const blameElement = event.delegateTarget;
 	if (blameElement instanceof HTMLAnchorElement && !event.altKey) {
@@ -63,14 +52,15 @@ async function redirectToBlameCommit(event: DelegateEvent<MouseEvent, HTMLAnchor
 	event.preventDefault();
 	blameElement.blur(); // Hide tooltip after click, it’s shown on :focus
 
-	const blameHunk = blameElement.closest('.blame-hunk')!;
-	const prNumbers = select.all('.issue-link', blameHunk).map(pr => looseParseInt(pr));
-	const prCommit = select('a.message', blameHunk)!.pathname.split('/').pop()!;
-	const blameUrl = new GitHubURL(location.href);
+	const blameHunk = blameElement.closest('.react-blame-segment-wrapper')!;
+	const prNumbers = $$('.issue-link', blameHunk).map(pr => looseParseInt(pr));
+	const commitInfo = $('span[data-hovercard-url*="/commit/"]', blameHunk).dataset.hovercardUrl!;
+	const prCommit = extractCommitFromHoverCardUrl(commitInfo);
+	const blameUrl = new GitHubFileURL(location.href);
 
 	await showToast(async () => {
 		blameUrl.branch = await getPullRequestBlameCommit(prCommit, prNumbers, blameUrl.filePath);
-		blameUrl.hash = 'L' + select('.js-line-number', blameHunk)!.textContent!;
+		blameUrl.hash = 'L' + $('.react-line-number', blameHunk).textContent;
 		location.href = blameUrl.href;
 	}, {
 		message: 'Fetching pull request',
@@ -78,27 +68,32 @@ async function redirectToBlameCommit(event: DelegateEvent<MouseEvent, HTMLAnchor
 	});
 }
 
-function init(signal: AbortSignal): void {
-	delegate(document, '.rgh-deep-reblame', 'click', redirectToBlameCommit, {signal});
-	observe('[data-hovercard-type="pull_request"]', pullRequest => {
-		const hunk = pullRequest.closest('.blame-hunk')!;
+function addButton(hunk: HTMLElement): void {
+	const reblameLink = $optional('a[aria-labelledby^="reblame-"]', hunk);
+	if (reblameLink) {
+		reblameLink.setAttribute('aria-label', 'View blame prior to this change. Hold `Alt` to extract commits from this PR first');
+		reblameLink.classList.add('rgh-deep-reblame');
+	} else {
+		$('.timestamp-wrapper-mobile', hunk).after(
+			<button
+				type="button"
+				aria-label={multilineAriaLabel(
+					'View blame prior to this change',
+					'(extracts commits from this PR first)',
+				)}
+				className="rgh-deep-reblame Button Button--iconOnly Button--invisible Button--small d-flex"
+			>
+				<VersionsIcon />
+			</button>,
+		);
+	}
+}
 
-		const reblameLink = select('.reblame-link', hunk);
-		if (reblameLink) {
-			reblameLink.setAttribute('aria-label', 'View blame prior to this change. Hold `Alt` to extract commits from this PR first');
-			reblameLink.classList.add('rgh-deep-reblame');
-		} else {
-			select('.blob-reblame', hunk)!.append(
-				<button
-					type="button"
-					aria-label="View blame prior to this change (extracts commits from this PR first)"
-					className="reblame-link btn-link no-underline tooltipped tooltipped-e d-inline-block pr-1 rgh-deep-reblame"
-				>
-					<VersionsIcon/>
-				</button>,
-			);
-		}
-	}, {signal});
+async function init(signal: AbortSignal): Promise<void> {
+	await expectToken();
+
+	delegate('.rgh-deep-reblame', 'click', redirectToBlameCommit, {signal});
+	observe('.react-blame-for-range:has([data-hovercard-type="pull_request"])', addButton, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -107,3 +102,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/blame/af0dd20dde497ac9dcec9cda47bee80902121298/source/features/deep-reblame.tsx
+
+*/

@@ -1,10 +1,11 @@
-import select from 'select-dom';
+import {$optional} from 'select-dom/strict.js';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
+import features from '../feature-manager.js';
 
 function init(): void {
-	select('.subnav-search')!.setAttribute('autocomplete', 'off');
+	// TODO: Drop feature in January 2025
+	$optional('.subnav-search')?.setAttribute('autocomplete', 'off');
 }
 
 void features.add(import.meta.url, {
@@ -17,3 +18,12 @@ void features.add(import.meta.url, {
 	awaitDomReady: true, // Not urgent
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/issues
+https://github.com/refined-github/refined-github/pulls
+
+*/

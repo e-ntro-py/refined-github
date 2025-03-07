@@ -1,6 +1,6 @@
-import delegate, {DelegateEvent} from 'delegate-it';
+import delegate, {type DelegateEvent} from 'delegate-it';
 
-import features from '../feature-manager';
+import features from '../feature-manager.js';
 
 const hasNotificationBar = (): boolean =>
 	location.search.startsWith('?notification_referrer_id=')
@@ -16,7 +16,7 @@ function handleClick(event: DelegateEvent<MouseEvent, HTMLButtonElement>): void 
 
 function init(signal: AbortSignal): void {
 	sessionStorage.rghIsNewTab = history.length === 1;
-	delegate(document, '.notification-shelf .js-notification-action button', 'click', handleClick, {signal});
+	delegate('.notification-shelf .js-notification-action button', 'click', handleClick, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -25,3 +25,13 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+1. Visit https://github.com/notifications
+2. Open any notification
+3. Alt-ckick the buttons in the notification bar
+
+*/

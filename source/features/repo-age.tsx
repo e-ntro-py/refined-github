@@ -1,13 +1,16 @@
 import twas from 'twas';
-import cache from 'webext-storage-cache';
+import {CachedFunction} from 'webext-storage-cache';
 import React from 'dom-chef';
-import {RepoIcon} from '@primer/octicons-react';
+import RepoIcon from 'octicons-plain-react/Repo';
 import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {cacheByRepo} from '../github-helpers';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {cacheByRepo} from '../github-helpers/index.js';
+import GetRepoAge from './repo-age.gql';
+import GetFirstCommit from './repo-age-first-commit.gql';
+import {randomArrayItem} from '../helpers/math.js';
 
 type CommitTarget = {
 	oid: string;
@@ -40,23 +43,12 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
 	day: 'numeric',
 });
 
-const getRepoAge = async (commitSha: string, commitsCount: number): Promise<[committedDate: string, resourcePath: string]> => {
-	const {repository} = await api.v4(`
-		repository() {
-			defaultBranchRef {
-				target {
-					... on Commit {
-						history(first: 5, after: "${commitSha} ${commitsCount - Math.min(6, commitsCount)}") {
-							nodes {
-								committedDate
-								resourcePath
-							}
-						}
-					}
-				}
-			}
-		}
-	`);
+async function getRepoAge(commitSha: string, commitsCount: number): Promise<[committedDate: string, resourcePath: string]> {
+	const {repository} = await api.v4(GetRepoAge, {
+		variables: {
+			cursor: `${commitSha} ${commitsCount - Math.min(6, commitsCount)}`,
+		},
+	});
 
 	const {committedDate, resourcePath} = repository.defaultBranchRef.target.history.nodes
 		.reverse()
@@ -64,39 +56,25 @@ const getRepoAge = async (commitSha: string, commitsCount: number): Promise<[com
 		.find((commit: CommitTarget) => new Date(commit.committedDate).getFullYear() > 1970);
 
 	return [committedDate, resourcePath];
-};
+}
 
-const getFirstCommit = cache.function('first-commit', async (): Promise<[committedDate: string, resourcePath: string]> => {
-	const {repository} = await api.v4(`
-		repository() {
-			defaultBranchRef {
-				target {
-					... on Commit {
-						oid
-						committedDate
-						resourcePath
-						history {
-							totalCount
-						}
-					}
-				}
-			}
+const firstCommit = new CachedFunction('first-commit', {
+	async updater(): Promise<[committedDate: string, resourcePath: string]> {
+		const {repository} = await api.v4(GetFirstCommit);
+
+		const {oid: commitSha, history, committedDate, resourcePath} = repository.defaultBranchRef.target as CommitTarget;
+		const commitsCount = history.totalCount;
+		if (commitsCount === 1) {
+			return [committedDate, resourcePath];
 		}
-	`);
 
-	const {oid: commitSha, history, committedDate, resourcePath} = repository.defaultBranchRef.target as CommitTarget;
-	const commitsCount = history.totalCount;
-	if (commitsCount === 1) {
-		return [committedDate, resourcePath];
-	}
-
-	return getRepoAge(commitSha, commitsCount);
-}, {
+		return getRepoAge(commitSha, commitsCount);
+	},
 	cacheKey: cacheByRepo,
 });
 
 async function init(): Promise<void> {
-	const [firstCommitDate, firstCommitHref] = await getFirstCommit()!;
+	const [firstCommitDate, firstCommitHref] = await firstCommit.get();
 	const birthday = new Date(firstCommitDate);
 
 	// `twas` could also return `an hour ago` or `just now`
@@ -107,7 +85,7 @@ async function init(): Promise<void> {
 
 	// About a day old or less ?
 	const age = Date.now() - birthday.getTime() < 10e7
-		? fresh[Math.floor(Math.random() * fresh.length)]
+		? randomArrayItem(fresh)
 		: <><strong>{value}</strong> {unit} old</>;
 
 	const sidebarForksLinkIcon = await elementReady('.BorderGrid .octicon-repo-forked');
@@ -115,7 +93,7 @@ async function init(): Promise<void> {
 		<h3 className="sr-only">Repository age</h3>,
 		<div className="mt-2">
 			<a href={firstCommitHref} className="Link--muted" title={`First commit dated ${dateFormatter.format(birthday)}`}>
-				<RepoIcon className="mr-2"/> {age}
+				<RepoIcon className="mr-2" /> {age}
 			</a>
 		</div>,
 	);
@@ -131,3 +109,12 @@ void features.add(import.meta.url, {
 	deduplicate: 'has-rgh-inner',
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/sandbox
+https://github.com/refined-github/sandbox/tree/6619
+
+*/

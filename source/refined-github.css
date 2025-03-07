@@ -1,8 +1,12 @@
 :root {
-	--rgh-green: var(--color-success-fg, #1a7f37);
-	--rgh-red: var(--color-danger-fg, #cf222e);
-	--rgh-border-color: var(--color-border-muted, #d8dee4);
-	--rgh-background: var(--color-canvas-default, #fff);
+	--rgh-green: var(--fgColor-success, var(--color-success-fg, #1a7f37));
+	--rgh-red: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
+	--rgh-yellow: var(--fgColor-attention, #c69026);
+	--rgh-border-color: var(
+		--borderColor-muted,
+		var(--color-border-muted, #d8dee4)
+	);
+	--rgh-background: var(--bgColor-default, var(--color-canvas-default, #fff));
 }
 
 /* For `open-all-selected` and `pr-filters`: set a reduced padding for all buttons for #1830 and #1904 */
@@ -27,62 +31,37 @@ https://github.com/notifications (Grouped by repo)
 https://github.com/notifications?query=reason%3Acomment (which is an unsaved filter)
 */
 .js-check-all-container .js-bulk-action-toasts ~ div .Box-header {
-	height: auto !important;
 	flex-wrap: wrap;
-	gap: 4px 8px;
+	height: auto !important; /* Unset the default height to allow wrapping */
+	min-height: 52px; /* Re-set the default height as a minimum height */
 }
 
-.js-check-all-container .js-bulk-action-toasts ~ div .Box-header .mr-2 {
-	margin-right: 0 !important; /* Spacing via `gap` instead */
-}
-
-:is(.js-notifications-mark-selected-actions, .js-notifications-mark-all-actions):not([hidden]) {
+:is(
+		.js-notifications-mark-selected-actions,
+		.js-notifications-mark-all-actions
+	):not([hidden]) {
 	display: contents !important;
-}
-
-/* Hide empty description of repo */
-.repository-meta.mb-3 > .repository-meta-content > em {
-	display: none !important;
-}
-
-/* Smoothen mouse animation on 404 pages */
-.js-plaxify {
-	transition: transform 0.1s;
 }
 
 [alt='404 “This is not the web page you are looking for”'] {
 	animation: fade-in 2s ease-out;
 }
 
-/* Remove "Seeing something unexpected?" from user profiles */
-#js-contribution-activity .js-show-more-timeline-form > p {
-	display: none;
-}
-
-/* Remove the 'Review Summary' header from the form */
-.pull-request-review-menu label[for='pull_request_review_body'] {
-	display: none !important;
-}
-
 /* Lighten deletions in Markdown */
 .markdown-body del {
-	color: var(--color-fg-muted);
+	color: var(--fgColor-muted, var(--color-fg-muted, fuchsia));
 }
 
 /* Make <details> visibly clickable */
 .markdown-body summary, /* Summary elements are always clickable when present */
-.markdown-body details:not([open]) { /* Summary-less details have unselectable clickable elements */
+.markdown-body details:not([open]) {
+	/* Summary-less details have unselectable clickable elements */
 	cursor: pointer;
 }
 
 /* Remove the "New repository" button in the dashboard sidebar */
-.dashboard-sidebar a.btn[href$='/new'] {
+.dashboard-sidebar a.Button[href='/new'] {
 	display: none;
-}
-
-.dashboard-sidebar .Box-title {
-	padding-top: 4px !important;
-	padding-bottom: 4px !important;
 }
 
 /* Expand empty diffs in PRs */
@@ -102,7 +81,7 @@ https://github.com/notifications?query=reason%3Acomment (which is an unsaved fil
 }
 
 /* Improve spacing in conversation lists meta, made feel crowded by:
-highlight-collaborators-and-own-conversations
+conversation-authors
 parse-backticks
 pr-branches
 */
@@ -137,7 +116,10 @@ pr-branches
 	right: 50%;
 	transform: translate(50%, 50%);
 	min-width: 380px; /* Avoids a width change on the last step which causes the YES button to be where NO was */
-	box-shadow: var(--color-shadow-large, var(--color-toast-shadow));
+	box-shadow: var(
+		--shadow-floating-large,
+		var(--color-shadow-large, var(--color-toast-shadow))
+	);
 	z-index: 2147483647;
 }
 
@@ -157,11 +139,6 @@ pr-branches
 	align-items: center !important;
 }
 
-/* Hide "Pin"/"Unpin" button in header of personal repos https://github.com/refined-github/refined-github/issues/5398#issuecomment-1036112206 */
-.pagehead-actions [data-test-selector='pin-repo-button'] {
-	display: none !important;
-}
-
 /* Bold username in conversation lists #4899 */
 :is(.js-issue-row, .js-pinned-issue-list-item) [data-hovercard-type='user'] {
 	font-weight: 600;
@@ -173,6 +150,7 @@ div[data-target='readme-toc.content'] div.blob-wrapper img {
 }
 
 /* Hide label on Milestones link if there are zero milestones #5120 */
+/* TODO: Drop in March 2025 if they don't add it to https://github.com/tc39/ecma402/issues */
 [data-selected-links^='repo_milestones ']:has([title='0']) {
 	width: 36px; /* Size it so only the icon is visible */
 	overflow: hidden; /* Crop the text out */
@@ -183,8 +161,18 @@ div[data-target='readme-toc.content'] div.blob-wrapper img {
 	margin-right: 20px; /* Push the text farther away from the text so it's cropped out */
 }
 
-/* Add override for CSS-in-JS components that don't use regular .btn styles */
-.BtnGroup-item:last-child {
-	border-top-left-radius: 0;
-	border-bottom-left-radius: 0;
+.rgh-bg-none {
+	background: none !important;
+}
+
+.rgh-z-index-5 {
+	position: relative;
+	z-index: 5;
+}
+
+/* Increase size of profile picture in user hovercard by 1.5x (default is 48px) #7695 */
+/* Test: https://github.com/refined-github/refined-github */
+.user-hovercard-avatar > img.d-block.avatar-user {
+	width: 72px;
+	height: 72px;
 }

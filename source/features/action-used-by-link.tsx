@@ -1,13 +1,13 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import {SearchIcon} from '@primer/octicons-react';
+import {$} from 'select-dom/strict.js';
+import SearchIcon from 'octicons-plain-react/Search';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import selectHas from '../helpers/select-has';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
 
-function init(): void {
-	const actionRepo = selectHas('aside a:has(.octicon-repo)')!
+function getActionURL(side: HTMLElement): URL {
+	const actionRepo = $('a:has(.octicon-repo)', side)
 		.pathname
 		.slice(1);
 
@@ -19,18 +19,35 @@ function init(): void {
 		o: 'desc',
 	}).toString();
 
-	select('.d-block.mb-2[href^="/contact"]')!.after(
+	return actionURL;
+}
+
+function addUsageLink(side: HTMLElement): void {
+	const actionURL = getActionURL(side);
+
+	// TODO: Integrate style better https://github.com/refined-github/refined-github/pull/8285/files#r1951911960
+	side.after(
 		<a href={actionURL.href} className="d-block mb-2">
-			<SearchIcon width={14} className="color-fg-default mr-2"/>Usage examples
+			<SearchIcon width={14} className="color-fg-default mr-2" />Usage examples
 		</a>,
 	);
+}
+
+function init(signal: AbortSignal): void {
+	observe('[data-testid="resources"] > ul', addUsageLink, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isMarketplaceAction,
 	],
-	awaitDomReady: true,
-	deduplicate: 'has-rgh',
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/marketplace/actions/title-replacer
+
+*/

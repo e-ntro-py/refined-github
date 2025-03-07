@@ -1,19 +1,15 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
+import {$, $optional} from 'select-dom/strict.js';
+import {$$} from 'select-dom';
 
-import features from '../feature-manager';
-import GitHubURL from '../github-helpers/github-url';
-import {buildRepoURL} from '../github-helpers';
+import features from '../feature-manager.js';
+import GitHubFileURL from '../github-helpers/github-file-url.js';
+import {buildRepoURL} from '../github-helpers/index.js';
+import observe from '../helpers/selector-observer.js';
 
-async function init(): Promise<void | false> {
-	const element = await elementReady(pageDetect.isQuickPR() ? '.branch-name' : '.commit-form .branch-name');
-	if (!element) {
-		return false;
-	}
-
-	const branchUrl = buildRepoURL('tree', element.textContent!);
+function linkifyQuickPR(element: HTMLElement): void {
+	const branchUrl = buildRepoURL('tree', element.textContent);
 	element.replaceWith(
 		<span className="commit-ref">
 			<a className="no-underline" href={branchUrl} data-turbo-frame="repo-content-turbo-frame">
@@ -23,23 +19,18 @@ async function init(): Promise<void | false> {
 	);
 }
 
-const hovercardObserver = new MutationObserver(([mutation]) => {
-	const hovercard = (mutation.target as HTMLElement).querySelector('[data-hydro-view*="pull-request-hovercard-hover"] ~ .d-flex.mt-2');
-	if (!hovercard) {
-		return;
-	}
+function linkifyHovercard(hovercard: HTMLElement): void {
+	const {href} = $('a.Link--primary', hovercard);
 
-	const {href} = hovercard.querySelector('a.Link--primary')!;
-
-	for (const reference of hovercard.querySelectorAll('.commit-ref')) {
-		const url = new GitHubURL(href).assign({
+	for (const reference of $$('.commit-ref', hovercard)) {
+		const url = new GitHubFileURL(href).assign({
 			route: 'tree',
 			branch: reference.title,
 		});
 
-		const user = reference.querySelector('.user');
+		const user = $optional('.user', reference);
 		if (user) {
-			url.user = user.textContent!;
+			url.user = user.textContent;
 		}
 
 		reference.replaceChildren(
@@ -48,26 +39,30 @@ const hovercardObserver = new MutationObserver(([mutation]) => {
 			</a>,
 		);
 	}
-});
+}
 
-function hovercardInit(): void | Deinit {
-	const hovercardContainer = select('.js-hovercard-content > .Popover-message');
-	if (hovercardContainer) {
-		hovercardObserver.observe(hovercardContainer, {childList: true});
-		return hovercardObserver;
-	}
+async function quickPRInit(signal: AbortSignal): Promise<void> {
+	observe('.branch-name', linkifyQuickPR, {signal});
+}
+
+function hovercardInit(signal: AbortSignal): void {
+	observe('[data-hydro-view*="pull-request-hovercard-hover"] ~ .d-flex.mt-2', linkifyHovercard, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isQuickPR,
-		pageDetect.isEditingFile,
-		pageDetect.isDeletingFile,
 	],
-	deduplicate: 'has-rgh',
-	init,
+	init: quickPRInit,
 }, {
-	deduplicate: 'has-rgh',
-	awaitDomReady: true, // TODO: Use new observer
 	init: hovercardInit,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/sandbox/compare/default-a...quick-pr-branch?quick_pull=1
+https://github.com ("Recent activity" box in left sidebar, hover a PR)
+
+*/

@@ -1,16 +1,21 @@
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import select from 'select-dom';
-import {TagIcon} from '@primer/octicons-react';
-import arrayUnion from 'array-union';
+import cache from 'webext-storage-cache/legacy.js';
+import {$, $$, $$optional} from 'select-dom/strict.js';
+
+import TagIcon from 'octicons-plain-react/Tag';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import * as api from '../github-helpers/api';
-import {getCommitHash} from './mark-merge-commits-in-list';
-import {buildRepoURL, getRepo} from '../github-helpers';
+import features from '../feature-manager.js';
+import api from '../github-helpers/api.js';
+import {getCommitHash} from './mark-merge-commits-in-list.js';
+import {buildRepoURL, getRepo} from '../github-helpers/index.js';
+import GetTagsOnCommit from './tags-on-commits-list.gql';
+import {expectToken} from '../github-helpers/github-token.js';
+import delay from '../helpers/delay.js';
 
 type CommitTags = Record<string, string[]>;
+
+const arrayUnion = (x: string[], y: string[]): string[] => [...new Set([...x, ...y])];
 
 type BaseTarget = {
 	commitResourcePath: string;
@@ -34,12 +39,10 @@ type TagNode = {
 
 function mergeTags(oldTags: CommitTags, newTags: CommitTags): CommitTags {
 	const result: CommitTags = {...oldTags};
-	for (const commit in newTags) {
-		if (result[commit]) {
-			result[commit] = arrayUnion(result[commit], newTags[commit]);
-		} else {
-			result[commit] = newTags[commit];
-		}
+	for (const commit of Object.keys(newTags)) {
+		result[commit] = result[commit]
+			? arrayUnion(result[commit], newTags[commit])
+			: newTags[commit];
 	}
 
 	return result;
@@ -50,43 +53,12 @@ function isTagTarget(target: CommonTarget): target is TagTarget {
 }
 
 async function getTags(lastCommit: string, after?: string): Promise<CommitTags> {
-	const {repository} = await api.v4(`
-		repository() {
-			refs(
-				first: 100,
-				refPrefix: "refs/tags/",
-				orderBy: {
-					field: TAG_COMMIT_DATE,
-					direction: DESC
-				}
-				${after ? `, after: "${after}"` : ''}
-			) {
-				pageInfo {
-					hasNextPage
-					endCursor
-				}
-				nodes {
-					name
-					target {
-						commitResourcePath
-						... on Tag {
-							tagger {
-								date
-							}
-						}
-						... on Commit {
-							committedDate
-						}
-					}
-				}
-			}
-			object(expression: "${lastCommit}") {
-				... on Commit {
-					committedDate
-				}
-			}
-		}
-		`);
+	const {repository} = await api.v4(GetTagsOnCommit, {
+		variables: {
+			commit: lastCommit,
+			...after && {after},
+		},
+	});
 	const nodes = repository.refs.nodes as TagNode[];
 
 	// If there are no tags in the repository
@@ -97,17 +69,15 @@ async function getTags(lastCommit: string, after?: string): Promise<CommitTags> 
 	let tags: CommitTags = {};
 	for (const node of nodes) {
 		const commit = node.target.commitResourcePath.split('/')[4];
-		if (!tags[commit]) {
-			tags[commit] = [];
-		}
+		tags[commit] ||= [];
 
 		tags[commit].push(node.name);
 	}
 
-	const lastTag = nodes[nodes.length - 1].target;
+	const lastTag = nodes.at(-1)!.target;
 	const lastTagIsYounger = new Date(repository.object.committedDate) < new Date(isTagTarget(lastTag) ? lastTag.tagger.date : lastTag.committedDate);
 
-	// If the last tag is younger than last commit on the page, then not all commits are accounted for, keep looking
+	// If the last tag is newer than last commit on the page, then not all commits are accounted for, keep looking
 	if (lastTagIsYounger && repository.refs.pageInfo.hasNextPage) {
 		tags = mergeTags(tags, await getTags(lastCommit, repository.refs.pageInfo.endCursor));
 	}
@@ -117,15 +87,24 @@ async function getTags(lastCommit: string, after?: string): Promise<CommitTags> 
 }
 
 async function init(): Promise<void | false> {
+	await expectToken();
 	const cacheKey = `tags:${getRepo()!.nameWithOwner}`;
 
-	const commitsOnPage = select.all('.js-commits-list-item');
-	const lastCommitOnPage = getCommitHash(commitsOnPage[commitsOnPage.length - 1]);
+	let commitsOnPage = $$optional('[data-testid="commit-row-item"]');
+	if (commitsOnPage.length === 0) {
+		// Try waiting a bit longer
+		// https://github.com/refined-github/refined-github/issues/7954
+		await delay(1000);
+		commitsOnPage = $$('[data-testid="commit-row-item"]');
+	}
+
+	const lastCommitOnPage = getCommitHash(commitsOnPage.at(-1)!);
 	let cached = await cache.get<Record<string, string[]>>(cacheKey) ?? {};
 	const commitsWithNoTags = [];
 	for (const commit of commitsOnPage) {
 		const targetCommit = getCommitHash(commit);
 		let targetTags = cached[targetCommit];
+
 		if (!targetTags) {
 			// No tags for this commit found in the cache, check in github
 			cached = mergeTags(cached, await getTags(lastCommitOnPage)); // eslint-disable-line no-await-in-loop
@@ -133,24 +112,32 @@ async function init(): Promise<void | false> {
 		}
 
 		if (!targetTags) {
-			// There was no tags for this commit, save that info to the cache
+			// There was no tag for this commit, save that info to the cache
 			commitsWithNoTags.push(targetCommit);
 		} else if (targetTags.length > 0) {
-			select('.flex-auto .d-flex.mt-1', commit)!.append(
-				<span>
-					<TagIcon className="ml-1"/>
-					{...targetTags.map(tag => (
-						<>
-							{' '}
-							<a
-								className="Link--muted"
-								href={buildRepoURL('releases/tag', tag)}
-							>
-								<code>{tag}</code>
-							</a>
-						</>
-					))}
-				</span>,
+			const commitMeta = $([
+				'div[data-testid="list-view-item-description"]',
+				'[class^="Description-module__container"] > [class^="Box-sc"]',
+			], commit);
+
+			commitMeta.append(
+				<div className="ml-1 d-flex flex-items-center gap-1">
+					<TagIcon />
+					<span className="d-flex flex-wrap gap-1">
+						{...targetTags.map(tag => (
+							<>
+								{' '}
+								{/* .markdown-title enables the background color */}
+								<a
+									className="Link--muted markdown-title"
+									href={buildRepoURL('releases/tag', tag)}
+								>
+									<code>{tag}</code>
+								</a>
+							</>
+						))}
+					</span>
+				</div>,
 			);
 			commit.classList.add('rgh-tagged');
 		}
@@ -173,3 +160,11 @@ void features.add(import.meta.url, {
 	deduplicate: 'has-rgh-inner',
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/refined-github/refined-github/commits/19.5.21.1921
+
+*/

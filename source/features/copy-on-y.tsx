@@ -1,5 +1,5 @@
-import features from '../feature-manager';
-import {isEditable} from '../helpers/dom-utils';
+import features from '../feature-manager.js';
+import {isEditable} from '../helpers/dom-utils.js';
 
 async function handler({key, target}: KeyboardEvent): Promise<void> {
 	if (key === 'y' && !isEditable(target)) {
@@ -11,9 +11,20 @@ async function handler({key, target}: KeyboardEvent): Promise<void> {
 }
 
 function init(signal: AbortSignal): void {
-	window.addEventListener('keyup', handler, {signal});
+	globalThis.addEventListener('keyup', handler, {signal});
 }
 
 void features.add(import.meta.url, {
 	init,
 });
+// TODO: Add visual popup, maybe use GitHub's own clipboard element
+
+/*
+
+Test URLs
+
+> Any page, particularly it should work copy the permalink when `y` is pressed on:
+
+https://github.com/refined-github/refined-github/blob/main/.gitignore
+
+*/

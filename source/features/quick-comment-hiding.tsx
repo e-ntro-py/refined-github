@@ -1,14 +1,16 @@
 import React from 'dom-chef';
-import select from 'select-dom';
-import delegate, {DelegateEvent} from 'delegate-it';
+import {$$} from 'select-dom';
+import {$} from 'select-dom/strict.js';
+
+import delegate, {type DelegateEvent} from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
+import features from '../feature-manager.js';
 
 const formSelector = [
 	'form[action$="/minimize-comment"]',
 	'form[action$="/minimize"]', // Review thread comments
-];
+] as const;
 
 function generateSubmenu(hideButton: Element): void {
 	if (hideButton.closest('.rgh-quick-comment-hiding-details')) {
@@ -20,17 +22,18 @@ function generateSubmenu(hideButton: Element): void {
 	detailsElement.classList.add('rgh-quick-comment-hiding-details');
 
 	const comment = hideButton.closest('.unminimized-comment')!;
-	const hideCommentForm: HTMLFormElement = select(formSelector, comment)!;
+	const hideCommentForm = $(formSelector, comment);
 
 	// Generate dropdown
 	const newForm = hideCommentForm.cloneNode();
 	const fields = [...hideCommentForm.elements].map(field => field.cloneNode());
 	newForm.append(<i hidden>{fields}</i>); // Add existing fields (comment ID, token)
+	newForm.setAttribute('novalidate', 'true');	// Ignore the form's required attributes
 
 	// Imitate existing menu, reset classes
-	newForm.className = ['dropdown-menu', 'dropdown-menu-sw', 'color-fg-default', 'show-more-popover', 'anim-scale-in'].join(' ');
+	newForm.className = ['js-comment-minimize', 'dropdown-menu', 'dropdown-menu-sw', 'color-fg-default', 'show-more-popover', 'anim-scale-in'].join(' ');
 
-	for (const reason of select.all('option:not([value=""])', hideCommentForm.elements.classifier)) {
+	for (const reason of $$('option:not([value=""])', hideCommentForm.elements.classifier)) {
 		newForm.append(
 			<button
 				type="submit"
@@ -59,10 +62,10 @@ function toggleSubMenu(hideButton: Element, show: boolean): void {
 	const dropdown = hideButton.closest('details')!;
 
 	// Native dropdown
-	select('details-menu', dropdown)!.classList.toggle('v-hidden', show);
+	$('details-menu', dropdown).classList.toggle('v-hidden', show);
 
 	// "Hide comment" dropdown
-	select(formSelector, dropdown)!.classList.toggle('v-hidden', !show);
+	$(formSelector, dropdown).classList.toggle('v-hidden', !show);
 }
 
 function resetDropdowns(event: DelegateEvent): void {
@@ -79,10 +82,12 @@ function showSubmenu(event: DelegateEvent): void {
 
 function init(signal: AbortSignal): void {
 	// `capture: true` required to be fired before GitHub's handlers
-	delegate(document, '.js-comment-hide-button', 'click', showSubmenu, {capture: true, signal});
-	delegate(document, '.rgh-quick-comment-hiding-details', 'toggle', resetDropdowns, {capture: true, signal});
+	delegate('.js-comment-hide-button', 'click', showSubmenu, {capture: true, signal});
+	delegate('.rgh-quick-comment-hiding-details', 'toggle', resetDropdowns, {capture: true, signal});
 }
 
+// TODO: Drop feature in April 2025
+// https://github.com/refined-github/refined-github/issues/7856#issuecomment-2411492400
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasComments,

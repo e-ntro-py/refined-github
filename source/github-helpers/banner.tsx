@@ -1,11 +1,11 @@
 import React from 'dom-chef';
-import {RequireAllOrNone} from 'type-fest';
+import type {RequireAllOrNone} from 'type-fest';
 
-export type BannerProps = RequireAllOrNone<{
+type BannerProps = RequireAllOrNone<{
 	icon?: JSX.Element;
 	text: Array<string | JSX.Element> | string | JSX.Element;
 	classes?: string[];
-	action: string | (() => void);
+	action: string | React.MouseEventHandler<HTMLButtonElement>;
 	buttonLabel: JSX.Element | string;
 }, 'action' | 'buttonLabel'>;
 
@@ -36,8 +36,7 @@ export default function createBanner(props: BannerProps): JSX.Element {
 			<div className="d-sm-flex flex-items-center gap-2">
 				<div className="d-flex flex-auto flex-self-center flex-items-center gap-2">
 					{props.icon}
-					{/* TODO: Drop `any` after https://github.com/frenic/csstype/issues/177 */}
-					<span style={{textWrap: 'balance'} as any}>{props.text}</span>
+					<span>{props.text}</span>
 				</div>
 				{button}
 			</div>

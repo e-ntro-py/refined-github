@@ -1,15 +1,28 @@
+.rgh-conversation-events-label,
 .rgh-conversation-activity-is-filtered .rgh-conversation-activity-filtered,
-.rgh-conversation-activity-is-collapsed-filtered :is(
-	.rgh-conversation-activity-collapsed,
-	.js-resolvable-timeline-thread-container[data-resolved='true'], /* Resolved review thread */
-	.js-resolvable-timeline-thread-container[data-resolved='false'] .minimized-comment, /* Minimized review thread comment */
-),
-.rgh-conversation-activity-is-filtered .rgh-conversation-activity-filter-dropdown .octicon-eye,
-.js-issues-results:not(.rgh-conversation-activity-is-filtered) .rgh-conversation-activity-filter-dropdown .octicon-eye-closed {
+[data-rgh-conversation-activity-filter='hideEventsAndCollapsedComments']
+	:is(
+		.rgh-conversation-activity-collapsed,
+		.js-resolvable-timeline-thread-container[data-resolved='true'],
+		.js-resolvable-timeline-thread-container[data-resolved='false']
+			.minimized-comment
+	),
+.rgh-conversation-activity-is-filtered
+	.rgh-conversation-activity-filter-dropdown
+	.octicon-eye,
+.js-issues-results:not(.rgh-conversation-activity-is-filtered)
+	.rgh-conversation-activity-filter-dropdown
+	.octicon-eye-closed {
 	display: none !important;
+
 	/* For debugging purposes only */
 	/* display: block !important; */
 	/* outline: solid 5px #f00; */
+}
+
+[data-rgh-conversation-activity-filter='hideEvents']
+	.rgh-conversation-events-label {
+	display: inline !important;
 }
 
 .rgh-conversation-activity-filter-dropdown .SelectMenu-modal {
@@ -31,4 +44,14 @@
 
 .gh-header-meta .rgh-conversation-activity-filter-wrapper {
 	margin-bottom: 8px; /* Preserve centered vertical alignment with status badge */
+}
+
+/* Temporary (?) AJAX issue https://github.com/refined-github/refined-github/issues/6437#issuecomment-1540526012 */
+#rgh-conversation-activity-filter-select-menu:not(.js-issues-results details) {
+	display: none !important;
+}
+
+/* Our `position:relative` overlaps this element https://github.com/refined-github/refined-github/issues/6663 */
+.gh-header-meta .tracked-in-parent-pill {
+	z-index: 1;
 }

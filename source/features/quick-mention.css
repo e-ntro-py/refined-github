@@ -1,26 +1,25 @@
 /* Show button when the avatar or the button itself are hovered/focused */
-:not(:hover, :focus) + button.rgh-quick-mention:not(:hover, :focus) {
-	opacity: 10%;
+:not(:hover, :focus) + .rgh-quick-mention:not(:hover, :focus) {
+	opacity: 20%;
 }
 
-button.rgh-quick-mention {
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	width: 100%;
-	height: 30px;
-	margin-bottom: -30px; /* Avoids pushing app badges down #2630 */
+.rgh-quick-mention {
+	/* !important required to override .tooltipped */
+	position: absolute !important;
+	top: 100%;
+	left: 50%;
+	translate: -50%;
+
+	/* Centers and improves clickable area; !important required to override .btn-link */
+	padding: 4px 12px !important;
+}
+
+.rgh-quick-mention.react-view {
+	position: static !important;
+	translate: none;
 }
 
 /* Show icon in black if it's not hovered/focused, instead of the blue color caused by .btn-link */
-button.rgh-quick-mention:not(:hover, :focus) {
+.rgh-quick-mention:not(:hover, :focus) {
 	color: inherit;
-}
-
-/* Conversation is locked. Hide the elements here because the feature runs before DOM ready. */
-/* TODO: Maybe find an earlier way to detect locked conversations in the observer, maybe include `body:has(.comment-field) */
-/* This detection is actually wrong. Moderators can still comment on locked issues */
-/* This class is also outdated and doubly-wrong */
-body:has(.conversation-limited) .rgh-quick-mention {
-	display: none;
 }

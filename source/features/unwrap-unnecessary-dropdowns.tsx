@@ -1,8 +1,9 @@
-import select from 'select-dom';
+import {$$} from 'select-dom';
+import {$} from 'select-dom/strict.js';
 import elementReady from 'element-ready';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
+import features from '../feature-manager.js';
 
 // Replace dropdown while keeping its sizing/positioning classes
 function replaceDropdownInPlace(dropdown: Element, form: Element): void {
@@ -13,7 +14,7 @@ function replaceDropdownInPlace(dropdown: Element, form: Element): void {
 
 async function unwrapNotifications(): Promise<void | false> {
 	await elementReady('.js-check-all-container > :first-child'); // Ensure the entire dropdown has loaded
-	const forms = select.all('[action="/notifications/beta/update_view_preference"]');
+	const forms = $$('[action="/notifications/beta/update_view_preference"]');
 	if (forms.length === 0) {
 		return false;
 	}
@@ -22,17 +23,17 @@ async function unwrapNotifications(): Promise<void | false> {
 		throw new Error('GitHub added new view types. This feature is obsolete.');
 	}
 
-	const dropdown = forms[0].closest('details')!;
-	const currentView = select('summary i', dropdown)!.nextSibling!.textContent!.trim();
+	const dropdown = forms[0].closest('action-menu')!;
+	const currentView = $('.Button-label span:last-child', dropdown).textContent.trim();
 	const desiredForm = currentView === 'Date' ? forms[0] : forms[1];
 
 	// Replace dropdown
 	replaceDropdownInPlace(dropdown, desiredForm);
 
 	// Fix button’s style
-	const button = select('[type="submit"]', desiredForm)!;
+	const button = $('[type="submit"]', desiredForm);
 	button.className = 'btn';
-	button.textContent = `Group by ${button.textContent!.toLowerCase()}`;
+	button.textContent = `Group by ${button.textContent.toLowerCase()}`;
 }
 
 void features.add(import.meta.url, {
@@ -42,3 +43,10 @@ void features.add(import.meta.url, {
 	deduplicate: 'has-rgh',
 	init: unwrapNotifications,
 });
+
+/*
+
+Test URLs:
+https://github.com/notifications
+
+*/

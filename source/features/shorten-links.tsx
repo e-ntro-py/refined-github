@@ -1,16 +1,20 @@
-import onetime from 'onetime';
-
-import features from '../feature-manager';
-import {linkifiedURLClass, shortenLink} from '../github-helpers/dom-formatters';
-import observe from '../helpers/selector-observer';
+import onetime from '../helpers/onetime.js';
+import features from '../feature-manager.js';
+import {linkifiedURLClass, shortenLink} from '../github-helpers/dom-formatters.js';
+import observe from '../helpers/selector-observer.js';
 
 /* This feature is currently so broad that it's not de-inited via signal, it's just run once for all pageloads #5889 */
-function init(): void {
-	observe(`.comment-body a[href]:not(.${linkifiedURLClass})`, shortenLink);
+function initOnce(): void {
+	observe([
+		`.comment-body a[href]:not(.${linkifiedURLClass})`,
+		`.react-issue-comment .markdown-body a[href]:not(.${linkifiedURLClass})`, // Issue comments
+		`.react-issue-body .markdown-body a[href]:not(.${linkifiedURLClass})`, // First issue comment
+		`[data-testid="review-thread"] .markdown-body a[href]:not(.${linkifiedURLClass})`, // React commit view
+	], shortenLink);
 }
 
 void features.add(import.meta.url, {
-	init: onetime(init),
+	init: onetime(initOnce),
 });
 
 /*

@@ -1,16 +1,18 @@
 /* eslint-disable no-await-in-loop */
 
 import './user-local-time.css';
-import React from 'dom-chef';
-import cache from 'webext-storage-cache';
-import delay from 'delay';
-import select from 'select-dom';
-import {ClockIcon} from '@primer/octicons-react';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
-import * as api from '../github-helpers/api';
-import {getUsername} from '../github-helpers';
+import React from 'dom-chef';
+import {CachedFunction} from 'webext-storage-cache';
+import {elementExists} from 'select-dom';
+import {$optional} from 'select-dom/strict.js';
+import ClockIcon from 'octicons-plain-react/Clock';
+
+import delay from '../helpers/delay.js';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
+import api from '../github-helpers/api.js';
+import {getUsername} from '../github-helpers/index.js';
 
 type Commit = {
 	url: string;
@@ -28,42 +30,43 @@ async function loadCommitPatch(commitUrl: string): Promise<string> {
 	return textContent;
 }
 
-const getLastCommitDate = cache.function('last-commit', async (login: string): Promise<string | false> => {
-	for await (const page of api.v3paginated(`/users/${login}/events`)) {
-		for (const event of page as any) {
-			if (event.type !== 'PushEvent') {
-				continue;
-			}
-
-			// Start from the latest commit, which is the last one in the list
-			for (const commit of event.payload.commits.reverse() as Commit[]) {
-				const response = await api.v3(commit.url, {ignoreHTTPStatus: true});
-				// Commits might not exist anymore even if they are listed in the events
-				// This can happen if the repository was deleted so we can also skip all other commits
-				if (response.httpStatus === 404) {
-					break;
-				}
-
-				if (!response.ok) {
-					throw await api.getError(response);
-				}
-
-				// `response.author` only appears if GitHub can match the email to a GitHub user
-				if (response.author?.id !== event.actor.id) {
+const lastCommitDate = new CachedFunction('last-commit', {
+	async updater(login: string): Promise<string | false> {
+		for await (const page of api.v3paginated(`/users/${login}/events`)) {
+			for (const event of page as any) {
+				if (event.type !== 'PushEvent') {
 					continue;
 				}
 
-				const patch = await loadCommitPatch(commit.url);
-				// The patch of merge commits doesn't include the commit sha so the date might be from another user
-				if (patch.startsWith(`From ${commit.sha} `)) {
-					return /^Date: (.*)$/m.exec(patch)?.[1] ?? false;
+				// Start from the latest commit, which is the last one in the list
+				for (const commit of event.payload.commits.reverse() as Commit[]) {
+					const response = await api.v3(commit.url, {ignoreHTTPStatus: true});
+					// Commits might not exist anymore even if they are listed in the events
+					// This can happen if the repository was deleted so we can also skip all other commits
+					if (response.httpStatus === 404) {
+						break;
+					}
+
+					if (!response.ok) {
+						throw await api.getError(response);
+					}
+
+					// `response.author` only appears if GitHub can match the email to a GitHub user
+					if (response.author?.id !== event.actor.id) {
+						continue;
+					}
+
+					const patch = await loadCommitPatch(commit.url);
+					// The patch of merge commits doesn't include the commit sha so the date might be from another user
+					if (patch.startsWith(`From ${commit.sha} `)) {
+						return /^Date: (.*)$/m.exec(patch)?.[1] ?? false;
+					}
 				}
 			}
 		}
-	}
 
-	return false;
-}, {
+		return false;
+	},
 	maxAge: {days: 10},
 	staleWhileRevalidate: {days: 20},
 });
@@ -107,22 +110,22 @@ async function display({
 
 async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
 	const hovercard = hovercardContainer.closest('div.Popover-message')!;
-	if (!select.exists('[data-hydro-view*="user-hovercard-hover"]', hovercard)) {
+	if (!elementExists('[data-hydro-view*="user-hovercard-hover"]', hovercard)) {
 		// It's not the hovercard type we expect
 		return;
 	}
 
-	if (select.exists('profile-timezone', hovercard)) {
+	if (elementExists('profile-timezone', hovercard)) {
 		// Native time already present
 		return;
 	}
 
-	const login = select('a.Link--primary', hovercard)?.pathname.slice(1);
+	const login = $optional('a.Link--primary', hovercard)?.pathname.slice(1);
 	if (!login || login === getUsername()) {
 		return;
 	}
 
-	const datePromise = getLastCommitDate(login);
+	const datePromise = lastCommitDate.get(login);
 	const race = await Promise.race([delay(300), datePromise]);
 	if (race === false) {
 		// The timezone was undeterminable and this resolved "immediately" (or was cached), so don't add the icon at all
@@ -132,7 +135,7 @@ async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
 	const placeholder = <span className="ml-1">Guessing local time…</span>;
 	const container = (
 		<section aria-label="user local time" className="mt-1 color-fg-muted text-small d-flex flex-items-center">
-			<ClockIcon/> {placeholder}
+			<ClockIcon /> {placeholder}
 		</section>
 	);
 
@@ -155,10 +158,7 @@ async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
 	void display({datePromise, placeholder, container});
 }
 
-const selector = [
-	'.js-hovercard-content .Popover-message div.d-flex.mt-3.overflow-hidden > div.d-flex',
-	'.js-hovercard-content .Popover-message div.d-flex.mt-3 > div.overflow-hidden.ml-3', // GHE 2022/06/24
-];
+const selector = '.js-hovercard-content .Popover-message div.d-flex.mt-3.overflow-hidden > div.d-flex';
 
 function init(signal: AbortSignal): void {
 	observe(selector, insertUserLocalTime, {signal});
@@ -167,3 +167,13 @@ function init(signal: AbortSignal): void {
 void features.add(import.meta.url, {
 	init,
 });
+
+/*
+
+Test URLs:
+
+1. Open https://github.com/sindresorhus/np/releases/tag/v8.0.4
+2. Hover over the username "sindresorhus" in the sidebar
+3. Notice his local time in the hovercard
+
+*/

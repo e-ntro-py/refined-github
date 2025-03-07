@@ -1,8 +1,8 @@
 import React from 'dom-chef';
 import * as pageDetect from 'github-url-detection';
 
-import features from '../feature-manager';
-import observe from '../helpers/selector-observer';
+import features from '../feature-manager.js';
+import observe from '../helpers/selector-observer.js';
 
 const isSingleHTMLFile = (): boolean => pageDetect.isSingleFile() && /\.html?$/.test(location.pathname);
 
@@ -15,7 +15,7 @@ function add(rawButton: HTMLAnchorElement): void {
 		.parentElement! // `BtnGroup`
 		.prepend(
 			<a
-				className="btn btn-sm BtnGroup-item rgh-html-preview-link"
+				className="btn btn-sm BtnGroup-item"
 				// #3305
 				href={`https://refined-github-html-preview.kidonng.workers.dev${rawButton.pathname}`}
 			>
@@ -25,7 +25,7 @@ function add(rawButton: HTMLAnchorElement): void {
 }
 
 function init(signal: AbortSignal): void {
-	observe('a#raw-url', add, {signal});
+	observe(['a#raw-url', 'a[data-testid="raw-button"]'], add, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -37,3 +37,11 @@ void features.add(import.meta.url, {
 	],
 	init,
 });
+
+/*
+
+Test URLs:
+
+https://github.com/CodingTrain/website/blob/4f90eedb9618257d9166241e92e51a7f3f00a08e/code_challenges/PerlinNoiseTerrain_p5.js/index.html
+
+*/
